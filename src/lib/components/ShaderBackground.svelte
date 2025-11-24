@@ -15,6 +15,22 @@
     let noiseTex: THREE.Texture;
     let blueNoiseTex: THREE.Texture;
 
+    // Integration state variables
+    let camZ = 0;
+    let vortexPhase = 0;
+
+    // Helper for color interpolation
+    const colorTargets = {
+        bgColor: new THREE.Color(),
+        lightColor1: new THREE.Color(),
+        lightColor2: new THREE.Color(),
+        cloudBaseCol: new THREE.Color(),
+        cloudShadowCol: new THREE.Color(),
+        sunGlowCol: new THREE.Color(),
+        sunCoreCol: new THREE.Color(),
+        sunGlareCol: new THREE.Color(),
+    };
+
 	const vertexShader = `
         varying vec2 vUv;
         void main() {
@@ -26,6 +42,11 @@
 	const fragmentShaderPrefix = `
         uniform vec3 iResolution;
         uniform float iTime;
+        
+        // Integrated uniforms for stability
+        uniform float uCamZ;
+        uniform float uVortexPhase;
+
         uniform sampler2D iChannel0;
         uniform sampler2D iChannel1;
         
@@ -101,8 +122,11 @@
             
             // 3. Noise Generation (Clouds) with VORTEX EFFECT
             
-            // Calculate rotation angle based on Time (spin) and Depth (twist)
-            float angle = -iTime * VORTEX_SPEED + p.z * VORTEX_TWIST;
+            // Calculate rotation angle
+            // FIX: Use integrated phase + anchor twist to camera Z to prevent "helicoptering" when changing parameters
+            float twistOffset = p.z - uCamZ; 
+            float angle = -uVortexPhase + twistOffset * VORTEX_TWIST;
+            
             float s = sin(angle);
             float c = cos(angle);
             mat2 rot = mat2(c, -s, s, c);
@@ -111,23 +135,47 @@
             vec2 twistedXY = rot * relP.xy;
             
             // Construct the noise coordinate system 'q'
-            vec3 q = vec3(twistedXY, p.z - iTime * 0.5);
+            // FIX: Anchor scaling to camera Z to prevent massive phase shifts
+            
+            // Fixed Scale References (Defaults)
+            const float REF_SCALE_BASE = 0.3;
+            const float REF_SCALE_DET = 0.7;
+            
+            // Base Noise
+            float phaseBase = (uCamZ - iTime * 0.5) * REF_SCALE_BASE;
+            float relZBase = (p.z - uCamZ) * NOISE_SCALE_BASE;
+            vec3 qBase = vec3(twistedXY * NOISE_SCALE_BASE, phaseBase + relZBase);
+            
+            // Detail Noise
+            float phaseDet = (uCamZ - iTime * 0.5) * REF_SCALE_DET;
+            float relZDet = (p.z - uCamZ) * NOISE_SCALE_DET;
+            vec3 qDet = vec3(twistedXY * NOISE_SCALE_DET, phaseDet + relZDet);
             
             // Initial large scale noise (Base shape)
-            float g = 0.5 + 0.5 * noise(q * NOISE_SCALE_BASE);
+            float g = 0.5 + 0.5 * noise(qBase);
             
             float f;
-            // Detail noise
-            f  = 0.50000 * noise(q * NOISE_SCALE_DET); 
+            // Detail noise - Octave 1
+            f  = 0.50000 * noise(qDet); 
             
-            if (USE_LOD == 1 && oct >= 2) 
-                f += 0.25000 * noise(q * NOISE_SCALE_DET * 2.25); 
+            // For higher octaves, we continue the pattern
+            if (USE_LOD == 1 && oct >= 2) {
+                float scale2 = 2.25;
+                vec3 qDet2 = vec3(twistedXY * NOISE_SCALE_DET * scale2, (phaseDet + relZDet) * scale2);
+                f += 0.25000 * noise(qDet2);
+            }
                 
-            if (USE_LOD == 1 && oct >= 3)
-                f += 0.12500 * noise(q * NOISE_SCALE_DET * 5.0); 
+            if (USE_LOD == 1 && oct >= 3) {
+                float scale3 = 5.0;
+                vec3 qDet3 = vec3(twistedXY * NOISE_SCALE_DET * scale3, (phaseDet + relZDet) * scale3);
+                f += 0.12500 * noise(qDet3); 
+            }
                 
-            if (USE_LOD == 1 && oct >= 4)
-                f += 0.06250 * noise(q * NOISE_SCALE_DET * 10.0); 
+            if (USE_LOD == 1 && oct >= 4) {
+                float scale4 = 10.0;
+                vec3 qDet4 = vec3(twistedXY * NOISE_SCALE_DET * scale4, (phaseDet + relZDet) * scale4);
+                f += 0.06250 * noise(qDet4); 
+            }
             
             f = mix(f * 0.1 - 0.5, f, g * g);
             
@@ -147,7 +195,7 @@
             vec4 sum = vec4(0.0);
             
             // Standard step count
-            for (int i = 0; i < 150; i++) // Hardcoded max steps for safety, usually loop bounds must be const
+            for (int i = 0; i < 150; i++) // Hardcoded max steps for safety
             {
                if (i >= RENDER_STEPS) break; // Dynamic break
 
@@ -238,7 +286,8 @@
             vec2 fragCoord = gl_FragCoord.xy;
             vec2 p = (2.0 * fragCoord - iResolution.xy) / iResolution.y;
 
-            float t = iTime * CAM_SPEED; 
+            // FIX: Use integrated camera position instead of iTime * Speed
+            float t = uCamZ;
             
             // Current position on path
             vec3 ro = path(t);
@@ -262,7 +311,7 @@
         if (!container || !canvas) return;
 
 		renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", alpha: false });
-		renderer.setPixelRatio(1); // Force 1:1 pixel ratio for performance (ShaderToy standard)
+		renderer.setPixelRatio(1); // Force 1:1 pixel ratio for performance
 
 		const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 		const scene = new THREE.Scene();
@@ -270,7 +319,6 @@
 
         const loader = new THREE.TextureLoader();
         
-        // Load provided textures
         noiseTex = loader.load('/textures/noise.png');
         noiseTex.wrapS = THREE.RepeatWrapping;
         noiseTex.wrapT = THREE.RepeatWrapping;
@@ -281,15 +329,17 @@
         blueNoiseTex = loader.load('/textures/blue_noise.png');
         blueNoiseTex.wrapS = THREE.RepeatWrapping;
         blueNoiseTex.wrapT = THREE.RepeatWrapping;
-        blueNoiseTex.minFilter = THREE.NearestFilter; // Nearest for dithering
+        blueNoiseTex.minFilter = THREE.NearestFilter; 
         blueNoiseTex.magFilter = THREE.NearestFilter;
-        blueNoiseTex.generateMipmaps = false; // Blue noise usually doesn't need mipmaps for this usage
+        blueNoiseTex.generateMipmaps = false; 
 
 		material = new THREE.ShaderMaterial({
 			vertexShader,
 			fragmentShader,
 			uniforms: {
 				iTime: { value: 0 },
+                uCamZ: { value: 0 },
+                uVortexPhase: { value: 0 },
 				iResolution: { value: new THREE.Vector3(1, 1, 1) },
                 iChannel0: { value: noiseTex },
                 iChannel1: { value: blueNoiseTex },
@@ -348,7 +398,58 @@
 
 		const animate = () => {
 			animationId = requestAnimationFrame(animate);
-			material.uniforms.iTime.value = clock.getElapsedTime();
+            
+            if (material) {
+                const dt = clock.getDelta();
+                material.uniforms.iTime.value = clock.elapsedTime; 
+
+                const lerpFactor = 1.0 - Math.exp(-dt * 5.0); 
+
+                // --- SMOOTH PARAMETER INTERPOLATION ---
+                material.uniforms.CAM_SPEED.value += (params.camSpeed - material.uniforms.CAM_SPEED.value) * lerpFactor;
+                material.uniforms.CAM_FOV.value += (params.camFov - material.uniforms.CAM_FOV.value) * lerpFactor;
+                material.uniforms.CAM_ROLL_AMP.value += (params.camRollAmp - material.uniforms.CAM_ROLL_AMP.value) * lerpFactor;
+                material.uniforms.CAM_ROLL_FREQ.value += (params.camRollFreq - material.uniforms.CAM_ROLL_FREQ.value) * lerpFactor;
+                material.uniforms.CAM_LOOK_AHEAD.value += (params.camLookAhead - material.uniforms.CAM_LOOK_AHEAD.value) * lerpFactor;
+                material.uniforms.SUN_PATH_OFFSET.value += (params.sunPathOffset - material.uniforms.SUN_PATH_OFFSET.value) * lerpFactor;
+                
+                material.uniforms.TUNNEL_RADIUS.value += (params.tunnelRadius - material.uniforms.TUNNEL_RADIUS.value) * lerpFactor;
+                material.uniforms.PATH_AMP_X.value += (params.pathAmpX - material.uniforms.PATH_AMP_X.value) * lerpFactor;
+                material.uniforms.PATH_FREQ_X.value += (params.pathFreqX - material.uniforms.PATH_FREQ_X.value) * lerpFactor;
+                material.uniforms.PATH_AMP_Y.value += (params.pathAmpY - material.uniforms.PATH_AMP_Y.value) * lerpFactor;
+                material.uniforms.PATH_FREQ_Y.value += (params.pathFreqY - material.uniforms.PATH_FREQ_Y.value) * lerpFactor;
+                
+                material.uniforms.VORTEX_SPEED.value += (params.vortexSpeed - material.uniforms.VORTEX_SPEED.value) * lerpFactor;
+                material.uniforms.VORTEX_TWIST.value += (params.vortexTwist - material.uniforms.VORTEX_TWIST.value) * lerpFactor;
+                material.uniforms.NOISE_SCALE_BASE.value += (params.noiseScaleBase - material.uniforms.NOISE_SCALE_BASE.value) * lerpFactor;
+                material.uniforms.NOISE_SCALE_DET.value += (params.noiseScaleDet - material.uniforms.NOISE_SCALE_DET.value) * lerpFactor;
+                material.uniforms.CLOUD_DENSITY.value += (params.cloudDensity - material.uniforms.CLOUD_DENSITY.value) * lerpFactor;
+                material.uniforms.DRAW_DIST.value += (params.drawDist - material.uniforms.DRAW_DIST.value) * lerpFactor;
+                
+                material.uniforms.FOG_DENSITY.value += (params.fogDensity - material.uniforms.FOG_DENSITY.value) * lerpFactor;
+                material.uniforms.SUN_GLOW_POW.value += (params.sunGlowPow - material.uniforms.SUN_GLOW_POW.value) * lerpFactor;
+                material.uniforms.SUN_CORE_POW.value += (params.sunCorePow - material.uniforms.SUN_CORE_POW.value) * lerpFactor;
+                material.uniforms.SUN_GLARE_POW.value += (params.sunGlarePow - material.uniforms.SUN_GLARE_POW.value) * lerpFactor;
+
+                material.uniforms.BG_COLOR.value.lerp(colorTargets.bgColor, lerpFactor);
+                material.uniforms.LIGHT_COLOR_1.value.lerp(colorTargets.lightColor1, lerpFactor);
+                material.uniforms.LIGHT_COLOR_2.value.lerp(colorTargets.lightColor2, lerpFactor);
+                material.uniforms.CLOUD_BASE_COL.value.lerp(colorTargets.cloudBaseCol, lerpFactor);
+                material.uniforms.CLOUD_SHADOW_COL.value.lerp(colorTargets.cloudShadowCol, lerpFactor);
+                material.uniforms.SUN_GLOW_COL.value.lerp(colorTargets.sunGlowCol, lerpFactor);
+                material.uniforms.SUN_CORE_COL.value.lerp(colorTargets.sunCoreCol, lerpFactor);
+                material.uniforms.SUN_GLARE_COL.value.lerp(colorTargets.sunGlareCol, lerpFactor);
+
+                // --- INTEGRATION ---
+                // Integrate position and rotation based on *current* smoothed speed
+                // This prevents jumps when parameters change
+                camZ += dt * material.uniforms.CAM_SPEED.value;
+                vortexPhase += dt * material.uniforms.VORTEX_SPEED.value;
+
+                material.uniforms.uCamZ.value = camZ;
+                material.uniforms.uVortexPhase.value = vortexPhase;
+            }
+
 			renderer.render(scene, camera);
 		};
 
@@ -356,41 +457,20 @@
 	});
 
     $effect(() => {
+        colorTargets.bgColor.set(params.bgColor);
+        colorTargets.lightColor1.set(params.lightColor1);
+        colorTargets.lightColor2.set(params.lightColor2);
+        colorTargets.cloudBaseCol.set(params.cloudBaseCol);
+        colorTargets.cloudShadowCol.set(params.cloudShadowCol);
+        colorTargets.sunGlowCol.set(params.sunGlowCol);
+        colorTargets.sunCoreCol.set(params.sunCoreCol);
+        colorTargets.sunGlareCol.set(params.sunGlareCol);
+
         if (material) {
-            // Update uniforms when params change
             material.uniforms.LOOK.value = params.look;
             material.uniforms.NOISE_METHOD.value = params.noiseMethod;
             material.uniforms.USE_LOD.value = params.useLod;
             material.uniforms.RENDER_STEPS.value = params.renderSteps;
-            material.uniforms.DRAW_DIST.value = params.drawDist;
-            material.uniforms.CAM_SPEED.value = params.camSpeed;
-            material.uniforms.CAM_FOV.value = params.camFov;
-            material.uniforms.CAM_ROLL_AMP.value = params.camRollAmp;
-            material.uniforms.CAM_ROLL_FREQ.value = params.camRollFreq;
-            material.uniforms.CAM_LOOK_AHEAD.value = params.camLookAhead;
-            material.uniforms.SUN_PATH_OFFSET.value = params.sunPathOffset;
-            material.uniforms.TUNNEL_RADIUS.value = params.tunnelRadius;
-            material.uniforms.PATH_AMP_X.value = params.pathAmpX;
-            material.uniforms.PATH_FREQ_X.value = params.pathFreqX;
-            material.uniforms.PATH_AMP_Y.value = params.pathAmpY;
-            material.uniforms.PATH_FREQ_Y.value = params.pathFreqY;
-            material.uniforms.VORTEX_SPEED.value = params.vortexSpeed;
-            material.uniforms.VORTEX_TWIST.value = params.vortexTwist;
-            material.uniforms.NOISE_SCALE_BASE.value = params.noiseScaleBase;
-            material.uniforms.NOISE_SCALE_DET.value = params.noiseScaleDet;
-            material.uniforms.CLOUD_DENSITY.value = params.cloudDensity;
-            material.uniforms.BG_COLOR.value.set(params.bgColor);
-            material.uniforms.LIGHT_COLOR_1.value.set(params.lightColor1);
-            material.uniforms.LIGHT_COLOR_2.value.set(params.lightColor2);
-            material.uniforms.CLOUD_BASE_COL.value.set(params.cloudBaseCol);
-            material.uniforms.CLOUD_SHADOW_COL.value.set(params.cloudShadowCol);
-            material.uniforms.FOG_DENSITY.value = params.fogDensity;
-            material.uniforms.SUN_GLOW_COL.value.set(params.sunGlowCol);
-            material.uniforms.SUN_GLOW_POW.value = params.sunGlowPow;
-            material.uniforms.SUN_CORE_COL.value.set(params.sunCoreCol);
-            material.uniforms.SUN_CORE_POW.value = params.sunCorePow;
-            material.uniforms.SUN_GLARE_COL.value.set(params.sunGlareCol);
-            material.uniforms.SUN_GLARE_POW.value = params.sunGlarePow;
         }
     });
 

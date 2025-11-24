@@ -164,7 +164,9 @@
                     onclick={() => toggleGroup(group.title)}
                     class={cn(
                         "w-full flex items-center justify-between px-4 py-3 text-left transition-colors duration-200 group",
-                        isDarkScene ? "hover:bg-white/10" : "hover:bg-white/20"
+                        activeGroup === group.title 
+                            ? (isDarkScene ? "bg-black/20" : "bg-white/20")
+                            : (isDarkScene ? "hover:bg-white/10" : "hover:bg-white/20")
                     )}
                 >
                     <div class="flex items-center gap-3">
