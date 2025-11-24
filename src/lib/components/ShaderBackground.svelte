@@ -319,12 +319,14 @@
 
         const loader = new THREE.TextureLoader();
         
+        // Load provided textures
         noiseTex = loader.load('/textures/noise.png');
         noiseTex.wrapS = THREE.RepeatWrapping;
         noiseTex.wrapT = THREE.RepeatWrapping;
         noiseTex.minFilter = THREE.LinearMipMapLinearFilter;
         noiseTex.magFilter = THREE.LinearFilter;
         noiseTex.generateMipmaps = true;
+        noiseTex.colorSpace = THREE.NoColorSpace; // Essential for noise data
         
         blueNoiseTex = loader.load('/textures/blue_noise.png');
         blueNoiseTex.wrapS = THREE.RepeatWrapping;
@@ -332,6 +334,7 @@
         blueNoiseTex.minFilter = THREE.NearestFilter; 
         blueNoiseTex.magFilter = THREE.NearestFilter;
         blueNoiseTex.generateMipmaps = false; 
+        blueNoiseTex.colorSpace = THREE.NoColorSpace; // Essential for blue noise dithering
 
 		material = new THREE.ShaderMaterial({
 			vertexShader,
