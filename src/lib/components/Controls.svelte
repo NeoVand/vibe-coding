@@ -256,6 +256,8 @@
         // Attempt auto-play with fade in
         audio.play().then(() => {
              fadeVolume(1.0);
+             // Start visualizer immediately if autoplay works
+             initAudioContext(); 
         }).catch(() => {
             // Autoplay blocked - set UI to muted state
             isMuted = true;
