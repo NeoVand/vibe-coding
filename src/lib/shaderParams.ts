@@ -33,6 +33,10 @@ export type ShaderParams = {
     sunCorePow: number;
     sunGlareCol: string;
     sunGlarePow: number;
+    
+    // Performance Tuning
+    pixelRatioCap: number;    // Hard cap on devicePixelRatio (e.g. 1.0, 1.5, 2.0)
+    renderScale: number;      // Internal resolution scaler (0.1 - 1.0)
 };
 
 // Helper to convert Linear float to sRGB Hex for matching ShaderToy visuals
@@ -90,4 +94,8 @@ export const defaultParams: ShaderParams = {
     sunCorePow: 80.0,
     sunGlareCol: '#FFD9CC',   // vec3(1.0, 0.8, 0.7) -> sRGB(1.0, 0.9, 0.85) approx
     sunGlarePow: 8.0,
+
+    // Performance Defaults
+    pixelRatioCap: 1.5,       // Good balance for Retina screens
+    renderScale: 1.0,         // Full resolution of the capped buffer
 };

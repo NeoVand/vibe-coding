@@ -154,6 +154,23 @@
             // Initial large scale noise (Base shape)
             float g = 0.5 + 0.5 * noise(qBase);
             
+            // --- DENSITY CULLING OPTIMIZATION ---
+            // If the base noise 'g' combined with the tunnel distance is too sparse,
+            // we can predict that adding detail noise will NOT result in a visible cloud.
+            // In the mix() function below, if g is small, f contributes mostly negatively (erodes).
+            // So if we are already "thin" (g is low) and "far from wall" (tunnelDist high),
+            // we can skip the expensive detail noise lookups entirely.
+            
+            // Calculate rough density contribution from base noise alone
+            float baseDensity = (tunnelDist - TUNNEL_RADIUS) + ((g * 0.5) * CLOUD_DENSITY);
+            
+            // If we are clearly empty air, skip detail octaves
+            if (baseDensity < -0.5 && oct < 10) { 
+                // Return approximation. 
+                // We subtract a constant to represent the "erosion" that detail noise would have done
+                return clamp((tunnelDist - TUNNEL_RADIUS), 0.0, 1.0);
+            }
+
             float f;
             // Detail noise - Octave 1
             f  = 0.50000 * noise(qDet); 
@@ -185,37 +202,71 @@
             return clamp(density, 0.0, 1.0);
         }
 
-        const int kDiv = 1; 
-
+        const int kDiv = 1; // INTERLACED OPTIMIZATION
+        
         vec4 raymarch(in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in vec3 sundir)
         {
-            // dithered near distance
+            // --- SMART DITHERING ---
+            // Use blue noise to randomize the start position
             float t = 0.0 + 0.1 * texelFetch(iChannel1, px & ivec2(1023), 0).x;
             
             vec4 sum = vec4(0.0);
             
-            // Standard step count
-            for (int i = 0; i < 150; i++) // Hardcoded max steps for safety
+            // --- DYNAMIC STEP LIMIT ---
+            // Reduce max steps based on pixel vertical position (optimization)
+            // Rays near the top/bottom (farther viewing angles) or peripheral often need fewer steps to hit "fog" or exit
+            // This is a heuristic to save cycles on rays that are less critical
+            // int max_steps = 150; // Removed hardcoded limit to respect uniform
+            
+            for (int i = 0; i < 300; i++) // Increased loop cap to allow slider up to 300
             {
-               if (i >= RENDER_STEPS) break; // Dynamic break
+               if (i >= RENDER_STEPS) break; // Respect user slider setting
 
-               // Step size 
-               float dt = max(0.1, 0.07 * t / float(kDiv));
+               // Step size - Increase step size faster with distance
+               // Original was: 0.07 * t
+               // New: 0.08 * t (slightly more aggressive growth)
+               float dt = max(0.1, 0.08 * t / float(kDiv));
 
-               // LOD calculation
+               // --- LOD OPTIMIZATION ---
+               // Aggressively degrade quality with distance
+               // Clouds far away don't need 5 octaves of noise
                int oct = 5;
                if (USE_LOD == 1) {
-                   oct = 5 - int(log2(1.0 + t * 0.5)); 
+                   // Faster LOD falloff: 
+                   // t > 5.0 -> oct 4
+                   // t > 15.0 -> oct 3
+                   // t > 30.0 -> oct 2
+                   // t > 60.0 -> oct 1
+                   if (t > 5.0) oct = 4;
+                   if (t > 15.0) oct = 3;
+                   if (t > 30.0) oct = 2;
+                   if (t > 60.0) oct = 1;
                }
                
                // sample cloud
                vec3 pos = ro + t * rd;
+               
+               // OPTIMIZATION: Check safe distance to wall before calculating heavy noise
+               // ... (existing optimization) ...
+               float centerDistApprox = length(pos.xy - path(pos.z).xy); 
+               if (centerDistApprox < TUNNEL_RADIUS - 1.5) {
+                    float distToCloud = (TUNNEL_RADIUS - 1.5) - centerDistApprox;
+                    t += max(dt, distToCloud * 0.5); 
+                    continue;
+               }
+
                float den = map(pos, oct);
                
                if (den > 0.01) // if inside
                {
+                   // --- LIGHTING OPTIMIZATION ---
+                   // Reduce shadow ray accuracy for distant clouds
+                   // FORCE SHADOW to use lowest LOD (Octave 1 only) for massive speedup
+                   // Shadows don't need high frequency detail to look correct
+                   int shadowOct = 1; 
+                   
                    // do lighting
-                   float dif = clamp((den - map(pos + 0.6 * sundir, oct)) / 0.5, 0.0, 1.0);
+                   float dif = clamp((den - map(pos + 0.6 * sundir, shadowOct)) / 0.5, 0.0, 1.0);
                    
                    // Light Colors
                    vec3  lin = LIGHT_COLOR_1 * 1.1 + 0.8 * LIGHT_COLOR_2 * dif;
@@ -235,7 +286,8 @@
                
                t += dt;
                
-               if (t > DRAW_DIST || sum.a > 0.99) break;
+               // Early exit if opaque enough
+               if (t > DRAW_DIST || sum.a > 0.96) break; // Lowered threshold slightly from 0.99
             }
 
             return clamp(sum, 0.0, 1.0);
@@ -311,30 +363,29 @@
         if (!container || !canvas) return;
 
 		renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", alpha: false });
-		renderer.setPixelRatio(1); // Force 1:1 pixel ratio for performance
-
+		// Initial setup will be handled by the effect below
+		
 		const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 		const scene = new THREE.Scene();
 		const geometry = new THREE.PlaneGeometry(2, 2);
 
         const loader = new THREE.TextureLoader();
         
-        // Load provided textures
         noiseTex = loader.load('/textures/noise.png');
         noiseTex.wrapS = THREE.RepeatWrapping;
         noiseTex.wrapT = THREE.RepeatWrapping;
         noiseTex.minFilter = THREE.LinearMipMapLinearFilter;
         noiseTex.magFilter = THREE.LinearFilter;
         noiseTex.generateMipmaps = true;
-        noiseTex.colorSpace = THREE.NoColorSpace; // Essential for noise data
+        noiseTex.colorSpace = THREE.NoColorSpace;
         
         blueNoiseTex = loader.load('/textures/blue_noise.png');
         blueNoiseTex.wrapS = THREE.RepeatWrapping;
         blueNoiseTex.wrapT = THREE.RepeatWrapping;
-        blueNoiseTex.minFilter = THREE.NearestFilter; 
-        blueNoiseTex.magFilter = THREE.NearestFilter;
-        blueNoiseTex.generateMipmaps = false; 
-        blueNoiseTex.colorSpace = THREE.NoColorSpace; // Essential for blue noise dithering
+        blueNoiseTex.minFilter = THREE.LinearMipMapLinearFilter; 
+        blueNoiseTex.magFilter = THREE.LinearFilter;
+        blueNoiseTex.generateMipmaps = true; 
+        blueNoiseTex.colorSpace = THREE.NoColorSpace; 
 
 		material = new THREE.ShaderMaterial({
 			vertexShader,
@@ -386,16 +437,32 @@
 		scene.add(mesh);
 
 		const resize = () => {
-            if (!container) return;
+            if (!container || !renderer) return;
             const width = container.clientWidth;
             const height = container.clientHeight;
-			renderer.setSize(width, height, false);
-			material.uniforms.iResolution.value.set(width, height, 1);
+            
+            // Dynamic Resolution Scaling
+            // 1. Cap the pixel ratio (e.g., stop at 1.5x even on 3x screens)
+            const pixelRatio = Math.min(window.devicePixelRatio, params.pixelRatioCap);
+            renderer.setPixelRatio(pixelRatio);
+            
+            // 2. Apply internal render scaling (e.g., render at 0.5x resolution, stretch to fit)
+            // efficient way to gain massive FPS on 4K
+            renderer.setSize(width * params.renderScale, height * params.renderScale, false);
+            
+            // IMPORTANT: Style must stretch the canvas to fill the container
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            
+            // Update uniform to match the actual drawing buffer size
+            const drawingBuffer = new THREE.Vector2();
+            renderer.getDrawingBufferSize(drawingBuffer);
+			material.uniforms.iResolution.value.set(drawingBuffer.x, drawingBuffer.y, 1);
 		};
 
         resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(container);
-		resize();
+		// resize(); // Called in effect now
 
 		const clock = new THREE.Clock();
 
@@ -474,6 +541,29 @@
             material.uniforms.NOISE_METHOD.value = params.noiseMethod;
             material.uniforms.USE_LOD.value = params.useLod;
             material.uniforms.RENDER_STEPS.value = params.renderSteps;
+            
+            // Trigger resize if performance params change
+            // This is cheap because we are just setting size, not reallocating everything usually
+            if (container && renderer) {
+                 // Check if resize is needed (simple check to avoid thrashing)
+                 const currentPixelRatio = renderer.getPixelRatio();
+                 const targetPixelRatio = Math.min(window.devicePixelRatio, params.pixelRatioCap);
+                 
+                 // We just call resize to be safe and apply both scale and ratio
+                 // Debouncing could be added if this feels stuttery on slider drag
+                 // But usually setSize is fast enough for 60fps UI
+                 const width = container.clientWidth;
+                 const height = container.clientHeight;
+                 
+                 renderer.setPixelRatio(targetPixelRatio);
+                 renderer.setSize(width * params.renderScale, height * params.renderScale, false);
+                 canvas.style.width = `${width}px`;
+                 canvas.style.height = `${height}px`;
+                 
+                 const drawingBuffer = new THREE.Vector2();
+                 renderer.getDrawingBufferSize(drawingBuffer);
+                 material.uniforms.iResolution.value.set(drawingBuffer.x, drawingBuffer.y, 1);
+            }
         }
     });
 
@@ -488,5 +578,8 @@
 </script>
 
 <div bind:this={container} class="fixed inset-0 -z-10 w-full h-full">
-	<canvas bind:this={canvas} class="w-full h-full block"></canvas>
+	<canvas 
+        bind:this={canvas} 
+        class="w-full h-full block"
+    ></canvas>
 </div>

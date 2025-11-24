@@ -1,8 +1,9 @@
 
 <script lang="ts">
-	import { Cloud, Settings, Video, CircleDot, Sun, Image } from 'lucide-svelte';
+	import { Cloud, Settings, Video, CircleDot, Sun, Image, Zap, Volume2, VolumeX } from 'lucide-svelte';
 	import type { ShaderParams } from '$lib/shaderParams';
 	import { slide } from 'svelte/transition';
+    import { onMount } from 'svelte';
     import { cubicOut } from 'svelte/easing';
     import { clsx } from 'clsx';
     import { twMerge } from 'tailwind-merge';
@@ -44,6 +45,231 @@
         return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     }
 
+    // --- Audio Logic ---
+    let isPlaying = $state(true);
+    let isMuted = $state(false);
+    let audio: HTMLAudioElement;
+    
+    // Web Audio API context
+    let audioContext: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
+    let sourceNode: MediaElementAudioSourceNode | null = null;
+    let animationFrameId: number;
+    
+    // Waveform path for SVG
+    let visualizerPath = $state("M 0 50 L 100 50");
+    let phase = 0;
+    
+    // Smoothing state
+    let smoothBass = 0;
+    let smoothHigh = 0;
+
+    function initAudioContext() {
+        if (audioContext) return;
+        
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        audioContext = new AudioContextClass();
+        
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512; 
+        // Use 0 to get raw data instantly, we handle smoothing manually for better control
+        analyser.smoothingTimeConstant = 0; 
+
+        if (audio) {
+            sourceNode = audioContext.createMediaElementSource(audio);
+            sourceNode.connect(analyser);
+            analyser.connect(audioContext.destination);
+        }
+        
+        updateVisualizer();
+    }
+
+    function updateVisualizer() {
+        if (!analyser || isMuted || audio?.paused) {
+            if (isMuted || audio?.paused) {
+                 visualizerPath = "M 0 50 Q 50 50 100 50"; // Flat line
+                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                 return;
+            }
+        }
+
+        if (analyser && audioContext) {
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+            
+            const startBin = 5; 
+            const midSplit = Math.floor(bufferLength * 0.2); 
+            
+            let midSum = 0;
+            let highSum = 0;
+            
+            for (let i = startBin; i < bufferLength; i++) {
+                if (i < midSplit) midSum += dataArray[i];
+                else highSum += dataArray[i];
+            }
+            
+            const midAvg = midSum / (midSplit - startBin);
+            const highAvg = highSum / (bufferLength - midSplit);
+            
+            // Target Inputs
+            const targetMid = Math.max(0, (midAvg / 255) - 0.1) * 0.5; 
+            const targetHigh = Math.max(0, (highAvg / 255)) * 8.0; 
+            
+            // Manual Smoothing with Asymmetric Attack/Release
+            // This eliminates "wobble" by reacting instantly to sound (Attack), 
+            // but fading out smoothly (Decay).
+            const smooth = (current: number, target: number, attack: number, decay: number) => {
+                if (target > current) { 
+                    return current + (target - current) * attack; // Snappy Up
+                } 
+                return current + (target - current) * decay; // Smooth Down
+            };
+            
+            // Attack 0.8 = Nearly instant response. Decay 0.1 = Controlled release.
+            smoothBass = smooth(smoothBass, targetMid, 0.8, 0.1); 
+            smoothHigh = smooth(smoothHigh, targetHigh, 0.8, 0.15);
+            
+            // Dynamic variables
+            // Constant, slow flow. We removed the speed modulation based on volume
+            // because it caused the "wobbly/dizzy" feeling at high energies.
+            phase += 0.05; 
+            
+            const volume = 0.2 + (smoothBass * 0.5) + (smoothHigh * 1.5);
+            
+            // Fixed complexity. 
+            const complexity = 1.2;
+            
+            const points = 64; 
+            const width = 100;
+            // Generate Mirrored Waveform Path (Filled)
+            let path = `M 0 50`;
+            
+            // Forward Pass (Top Half)
+            for (let i = 0; i <= points; i++) {
+                const normX = i / points;
+                const window = Math.sin(normX * Math.PI);
+                
+                const yOffset = 
+                    // Carrier
+                    (Math.sin(normX * 6 + phase) * 8 * volume) + 
+                    
+                    // Texture
+                    // Aligned direction (+ phase) to prevent the "shearing" interference pattern.
+                    // We use phase * 1.5 so it drifts slightly relative to the carrier, but
+                    // doesn't race against it.
+                    (Math.sin(normX * 12 + phase * 1.5) * 25 * volume);
+                
+                const y = 50 - (yOffset * window); // Upwards
+                const x = normX * width;
+                path += ` L ${x} ${y}`;
+            }
+
+            // Backward Pass (Bottom Half) - creates the symmetric mirror
+            for (let i = points; i >= 0; i--) {
+                const normX = i / points;
+                const window = Math.sin(normX * Math.PI);
+                
+                const yOffset = 
+                    (Math.sin(normX * 6 + phase) * 8 * volume) + 
+                    (Math.sin(normX * 12 + phase * 1.5) * 25 * volume);
+                
+                const y = 50 + (yOffset * window); // Downwards
+                const x = normX * width;
+                path += ` L ${x} ${y}`;
+            }
+            
+            path += " Z"; // Close shape
+            
+            visualizerPath = path;
+        }
+        
+        animationFrameId = requestAnimationFrame(updateVisualizer);
+    }
+
+    function toggleAudio() {
+        if (!audio) return;
+        
+        // Initialize Web Audio on first user interaction to bypass browser policies
+        if (!audioContext) {
+            initAudioContext();
+        }
+        
+        if (audioContext && audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+        
+        if (isMuted) {
+            // Unmute: Fade In
+            isMuted = false;
+            audio.play().catch(() => {
+                // If autoplay blocked, we just stay muted until user interacts again
+                isMuted = true; 
+            });
+            fadeVolume(1.0);
+            updateVisualizer(); // Restart loop
+        } else {
+            // Mute: Fade Out
+            isMuted = true;
+            fadeVolume(0.0, () => {
+                audio.pause();
+                if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                visualizerPath = "M 0 50 L 100 50";
+            });
+        }
+    }
+
+    let fadeInterval: ReturnType<typeof setInterval>;
+
+    function fadeVolume(target: number, onComplete?: () => void) {
+        if (fadeInterval) clearInterval(fadeInterval);
+        
+        const start = audio.volume;
+        const diff = target - start;
+        const duration = 1000; // 1 second fade
+        const stepTime = 50;
+        const steps = duration / stepTime;
+        const stepValue = diff / steps;
+        
+        let currentStep = 0;
+        
+        fadeInterval = setInterval(() => {
+            currentStep++;
+            const newVolume = start + (stepValue * currentStep);
+            
+            // Clamp to valid range
+            audio.volume = Math.max(0, Math.min(1, newVolume));
+            
+            if (currentStep >= steps) {
+                clearInterval(fadeInterval);
+                audio.volume = target;
+                if (onComplete) onComplete();
+            }
+        }, stepTime);
+    }
+
+    onMount(() => {
+        audio = new Audio('/music/intro-wind.mp3');
+        audio.loop = true;
+        audio.volume = 0; // Start silent
+        
+        // Attempt auto-play with fade in
+        audio.play().then(() => {
+             fadeVolume(1.0);
+        }).catch(() => {
+            // Autoplay blocked - set UI to muted state
+            isMuted = true;
+        });
+
+        return () => {
+            if (fadeInterval) clearInterval(fadeInterval);
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            if (audioContext) audioContext.close();
+            audio.pause();
+            audio.src = '';
+        };
+    });
+    
     // Calculate perceived scene brightness based on dominant colors
     let sceneBrightness = $derived.by(() => {
         const bgLum = getLuminance(params.bgColor);
@@ -75,6 +301,16 @@
     };
 
     const groups: Group[] = [
+        {
+            title: "Performance",
+            icon: Zap,
+            items: [
+                { key: 'pixelRatioCap', label: 'Max Pixel Ratio', min: 0.5, max: 3.0, step: 0.1, type: 'slider' },
+                { key: 'renderScale', label: 'Render Scale', min: 0.1, max: 1.0, step: 0.05, type: 'slider' },
+                { key: 'renderSteps', label: 'Max Steps', min: 50, max: 300, step: 10, type: 'slider' },
+                { key: 'useLod', label: 'Use LOD (1=On)', min: 0, max: 1, step: 1, type: 'slider' },
+            ]
+        },
         {
             title: "Camera",
             icon: Video,
@@ -147,7 +383,7 @@
     <div 
         transition:slide={{ duration: 300, axis: 'y' }}
         class={cn(
-            "fixed bottom-20 right-6 z-50 w-72 rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden origin-bottom-right transition-colors duration-500",
+            "fixed top-4 right-16 z-50 w-72 rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden origin-top-right transition-colors duration-500",
             isDarkScene 
                 ? "bg-white/10 border border-white/20" // Dark Scene -> Light UI (Glass)
                 : "bg-white/20 border border-white/40" // Light Scene -> Darker/Sharper Glass or stick to light? 
@@ -255,14 +491,14 @@
     </div>
 {/if}
 
-<div class="fixed bottom-6 right-6 z-50">
+<div class="fixed top-4 right-4 z-50 flex flex-col gap-3">
     <button 
         onclick={toggle}
         class={cn(
             "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border",
-            isOpen 
-                ? (isDarkScene ? "bg-white/20 border-white/20" : "bg-black/10 border-black/10")
-                : (isDarkScene ? "bg-white/10 border-white/20 hover:bg-white/20" : "bg-white/40 border-white/40 hover:bg-white/60")
+            isDarkScene 
+                ? "bg-white/5 border-white/20 hover:bg-white/10"
+                : "bg-white/10 border-white/40 hover:bg-white/20"
         )}
         aria-label="Open controls"
     >
@@ -271,6 +507,35 @@
         {:else}
              <Cloud size={18} class={cn("absolute transition-all duration-300 scale-100 opacity-100 group-hover:scale-0 group-hover:opacity-0", isDarkScene ? "text-white" : "text-black")} />
              <Settings size={18} class={cn("absolute transition-all duration-300 scale-0 opacity-0 rotate-[-90deg] group-hover:scale-100 group-hover:opacity-100 group-hover:rotate-0", isDarkScene ? "text-white" : "text-black")} />
+        {/if}
+    </button>
+
+    <!-- Audio Button -->
+    <button 
+        onclick={toggleAudio}
+        class={cn(
+            "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border overflow-hidden",
+             isDarkScene 
+                ? "bg-white/5 border-white/20 hover:bg-white/10"
+                : "bg-white/10 border-white/40 hover:bg-white/20"
+        )}
+        aria-label="Toggle Audio"
+    >
+        {#if isMuted}
+             <VolumeX size={18} class={cn("transition-all duration-300", isDarkScene ? "text-white" : "text-black/60")} />
+        {:else}
+             <!-- Waveform Visualizer -->
+             <div class="w-5 h-5 flex items-center justify-center opacity-80">
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="w-full h-full overflow-visible">
+                    <path 
+                        d={visualizerPath} 
+                        fill={isDarkScene ? "white" : "black"} 
+                        fill-opacity="0.8"
+                        stroke="none"
+                        class="transition-colors duration-300"
+                    />
+                </svg>
+             </div>
         {/if}
     </button>
 </div>
