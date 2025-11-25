@@ -65,9 +65,20 @@
         longPressTimer = setTimeout(() => {
             isLongPress = true;
             // Long Press: Open GUI, Hide Presets
-            isOpen = true;
+            // showPresets = false; 
+            // isOpen = true;
+            
+            // Sequence the state changes:
+            // 1. Start hiding presets immediately
             showPresets = false;
             if (navigator.vibrate) navigator.vibrate(50);
+            
+            // 2. Open GUI after a short delay to prevent frame drops from interrupting the exit animation
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    isOpen = true;
+                }, 50);
+            });
         }, 500);
     }
 
@@ -581,9 +592,9 @@
         role="presentation"
     >
          <!-- Satellites -->
-         <!-- Use a keyed block to ensure Svelte tracks entrance/exit correctly when showPresets changes -->
+        <!-- Use a keyed block to ensure Svelte tracks entrance/exit correctly when showPresets changes -->
          {#if showPresets && !isOpen}
-            {#each PRESETS as preset, i}
+            {#each PRESETS as preset, i (preset.id)}
                 {@const angle = Math.PI - (i * (Math.PI / 2) / (PRESETS.length - 1))}
                 {@const r = 42} 
                 {@const x = Math.cos(angle) * r}
