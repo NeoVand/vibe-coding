@@ -1,6 +1,6 @@
 
 <script lang="ts">
-    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check } from 'lucide-svelte';
+    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check } from 'lucide-svelte';
     import { PRESETS, type Preset } from '$lib/presets';
 	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
 	import { slide, fly, scale } from 'svelte/transition';
@@ -778,12 +778,12 @@
             aria-label="Open controls"
         >
             {#if isOpen}
-                 <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black")} />
+                 <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black/60")} />
             {:else}
                  <div class="absolute transition-all duration-300 scale-100 opacity-100 group-hover:scale-0 group-hover:opacity-0 flex items-center justify-center">
-                    <ActiveIcon size={18} class={isDarkScene ? "text-white" : "text-black"} />
+                    <ActiveIcon size={18} class={isDarkScene ? "text-white" : "text-black/60"} />
                  </div>
-                 <Settings size={18} class={cn("absolute transition-all duration-300 scale-0 opacity-0 rotate-[-90deg] group-hover:scale-100 group-hover:opacity-100 group-hover:rotate-0", isDarkScene ? "text-white" : "text-black")} />
+                 <Settings size={18} class={cn("absolute transition-all duration-300 scale-0 opacity-0 rotate-[-90deg] group-hover:scale-100 group-hover:opacity-100 group-hover:rotate-0", isDarkScene ? "text-white" : "text-black/60")} />
             {/if}
         </button>
     </div>
@@ -801,7 +801,7 @@
         aria-label="Toggle Audio"
     >
         {#if isMuted}
-             <VolumeX size={18} class={cn("transition-all duration-300", isDarkScene ? "text-white" : "text-black/60")} />
+             <Headphones size={18} class={cn("transition-all duration-300", isDarkScene ? "text-white" : "text-black/60")} />
         {:else}
              <!-- Waveform Visualizer -->
              <div class="w-5 h-5 flex items-center justify-center opacity-80">
