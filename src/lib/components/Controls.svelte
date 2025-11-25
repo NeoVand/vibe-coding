@@ -464,7 +464,7 @@
     <div 
         transition:slide={{ duration: 300, axis: 'y' }}
         class={cn(
-            "fixed top-4 right-16 z-50 w-72 rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden origin-top-right transition-colors duration-500",
+            "fixed top-4 right-16 z-50 w-72 rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden origin-top-right transition-colors duration-500 select-none",
             isDarkScene 
                 ? "bg-white/10 border border-white/20" // Dark Scene -> Light UI (Glass)
                 : "bg-white/20 border border-white/40" // Light Scene -> Darker/Sharper Glass or stick to light? 
@@ -619,7 +619,7 @@
             ontouchend={handleTouchEnd}
             oncontextmenu={handleContextMenu}
             class={cn(
-                "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border z-10",
+                "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border z-10 select-none",
                 isDarkScene 
                     ? "bg-white/5 border-white/20 hover:bg-white/10"
                     : "bg-white/10 border-white/40 hover:bg-white/20"
