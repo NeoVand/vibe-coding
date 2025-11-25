@@ -1,10 +1,11 @@
 
 <script lang="ts">
-	import { Cloud, Settings, Video, CircleDot, Sun, Image, Zap, Volume2, VolumeX } from 'lucide-svelte';
+    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Cloud, Sun, Sunset, CloudLightning, Moon } from 'lucide-svelte';
+    import { PRESETS, type Preset } from '$lib/presets';
 	import type { ShaderParams } from '$lib/shaderParams';
-	import { slide } from 'svelte/transition';
+	import { slide, fly, scale } from 'svelte/transition';
     import { onMount } from 'svelte';
-    import { cubicOut } from 'svelte/easing';
+    import { cubicOut, elasticOut } from 'svelte/easing';
     import { clsx } from 'clsx';
     import { twMerge } from 'tailwind-merge';
     import TunnelIcon from '$lib/components/icons/TunnelIcon.svelte';
@@ -13,13 +14,57 @@
 
 	let isOpen = $state(false);
     let activeGroup = $state("Camera");
+    let activePresetId = $state("default");
+    let showPresets = $state(false);
+    let hoverTimeout: NodeJS.Timeout;
 
     function toggle() {
+        // Desktop: toggle open/close
+        // Mobile: Handled by click logic below
         isOpen = !isOpen;
+        if (isOpen) showPresets = false;
     }
 
     function close() {
         isOpen = false;
+    }
+
+    function applyPreset(preset: Preset) {
+        Object.assign(params, preset.params);
+        activePresetId = preset.id;
+        // Keep presets open for a moment or close? 
+        // User said: "when the user clicks on them, we would automatically set the settings"
+        // Does not explicitly say close.
+    }
+    
+    // Determine active icon
+    let ActiveIcon = $derived(PRESETS.find(p => p.id === activePresetId)?.icon || PRESETS[0].icon);
+
+    function handleMainMouseEnter() {
+        if (isOpen) return;
+        clearTimeout(hoverTimeout);
+        showPresets = true;
+    }
+
+    function handleMainMouseLeave() {
+        // Small delay to allow moving to satellites
+        hoverTimeout = setTimeout(() => {
+            showPresets = false;
+        }, 100);
+    }
+    
+    function handleMobileClick(e: MouseEvent) {
+        // Keep this if we want to use it for touch events explicitly, 
+        // but standard click handler usually covers it.
+        // For now, I'll remove the duplicate logic and rely on handleClick.
+    }
+    
+    function handleClick(e: MouseEvent) {
+        if (!isOpen && !showPresets) {
+            showPresets = true;
+            return;
+        }
+        toggle();
     }
 
     function toggleGroup(title: string) {
@@ -117,8 +162,6 @@
             const targetHigh = Math.max(0, (highAvg / 255)) * 8.0; 
             
             // Manual Smoothing with Asymmetric Attack/Release
-            // This eliminates "wobble" by reacting instantly to sound (Attack), 
-            // but fading out smoothly (Decay).
             const smooth = (current: number, target: number, attack: number, decay: number) => {
                 if (target > current) { 
                     return current + (target - current) * attack; // Snappy Up
@@ -131,17 +174,11 @@
             smoothHigh = smooth(smoothHigh, targetHigh, 0.8, 0.15);
             
             // Dynamic variables
-            // Constant, slow flow. We removed the speed modulation based on volume
-            // because it caused the "wobbly/dizzy" feeling at high energies.
             phase += 0.05; 
             
             const volume = 0.2 + (smoothBass * 0.5) + (smoothHigh * 1.5);
-            
-            // Fixed complexity. 
-            const complexity = 1.2;
-            
-            const points = 64; 
             const width = 100;
+            const points = 64;
             // Generate Mirrored Waveform Path (Filled)
             let path = `M 0 50`;
             
@@ -151,13 +188,7 @@
                 const window = Math.sin(normX * Math.PI);
                 
                 const yOffset = 
-                    // Carrier
                     (Math.sin(normX * 6 + phase) * 8 * volume) + 
-                    
-                    // Texture
-                    // Aligned direction (+ phase) to prevent the "shearing" interference pattern.
-                    // We use phase * 1.5 so it drifts slightly relative to the carrier, but
-                    // doesn't race against it.
                     (Math.sin(normX * 12 + phase * 1.5) * 25 * volume);
                 
                 const y = 50 - (yOffset * window); // Upwards
@@ -493,33 +524,76 @@
     </div>
 {/if}
 
-<div class="fixed top-4 right-4 z-50 flex flex-col gap-3">
-    <button 
-        onclick={toggle}
-        class={cn(
-            "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border",
-            isDarkScene 
-                ? "bg-white/5 border-white/20 hover:bg-white/10"
-                : "bg-white/10 border-white/40 hover:bg-white/20"
-        )}
-        aria-label="Open controls"
+<div class="fixed top-4 right-4 z-50 flex flex-col items-end gap-4 pointer-events-none">
+    <!-- Main Toggle Wrapper -->
+    <div 
+        class="relative pointer-events-auto"
+        onmouseenter={handleMainMouseEnter} 
+        onmouseleave={handleMainMouseLeave}
+        role="presentation"
     >
-        {#if isOpen}
-             <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black")} />
-        {:else}
-             <Cloud size={18} class={cn("absolute transition-all duration-300 scale-100 opacity-100 group-hover:scale-0 group-hover:opacity-0", isDarkScene ? "text-white" : "text-black")} />
-             <Settings size={18} class={cn("absolute transition-all duration-300 scale-0 opacity-0 rotate-[-90deg] group-hover:scale-100 group-hover:opacity-100 group-hover:rotate-0", isDarkScene ? "text-white" : "text-black")} />
-        {/if}
-    </button>
+         <!-- Satellites -->
+         {#if showPresets && !isOpen}
+            {#each PRESETS as preset, i}
+                {@const angle = Math.PI - (i * (Math.PI / 2) / (PRESETS.length - 1))}
+                {@const r = 42} 
+                {@const x = Math.cos(angle) * r}
+                {@const y = Math.sin(angle) * r}
+                <!-- Wrapper div for positioning so hover scaling doesn't affect layout flow or cause jitter -->
+                <div 
+                    class="absolute w-5 h-5 z-0 flex items-center justify-center"
+                    style="transform: translate(calc(-50% + {x}px), calc(-50% + {y}px)); top: 50%; left: 50%;" 
+                    in:fly={{ x: x*0.5, y: y*0.5, duration: 300, delay: i * 50 }}
+                    out:scale={{ duration: 200 }}
+                >
+                    <button
+                        onclick={() => applyPreset(preset)}
+                        class={cn(
+                            "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center transition-all duration-200 hover:scale-125",
+                            isDarkScene 
+                                ? "bg-white/10 border-white/20 text-white" 
+                                : "bg-white/20 border-white/40 text-black",
+                             activePresetId === preset.id && "scale-110 brightness-125"
+                        )}
+                        aria-label={preset.name}
+                        title={preset.name}
+                    >
+                       <preset.icon size={10} fill={activePresetId === preset.id ? "currentColor" : "none"} />
+                    </button>
+                </div>
+            {/each}
+         {/if}
+
+        <button 
+            onclick={handleClick}
+            class={cn(
+                "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border z-10",
+                isDarkScene 
+                    ? "bg-white/5 border-white/20 hover:bg-white/10"
+                    : "bg-white/10 border-white/40 hover:bg-white/20"
+            )}
+            aria-label="Open controls"
+        >
+            {#if isOpen}
+                 <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black")} />
+            {:else}
+                 <div class="absolute transition-all duration-300 scale-100 opacity-100 group-hover:scale-0 group-hover:opacity-0 flex items-center justify-center">
+                    <ActiveIcon size={18} class={isDarkScene ? "text-white" : "text-black"} />
+                 </div>
+                 <Settings size={18} class={cn("absolute transition-all duration-300 scale-0 opacity-0 rotate-[-90deg] group-hover:scale-100 group-hover:opacity-100 group-hover:rotate-0", isDarkScene ? "text-white" : "text-black")} />
+            {/if}
+        </button>
+    </div>
 
     <!-- Audio Button -->
     <button 
         onclick={toggleAudio}
         class={cn(
-            "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border overflow-hidden",
+            "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border overflow-hidden pointer-events-auto",
              isDarkScene 
                 ? "bg-white/5 border-white/20 hover:bg-white/10"
-                : "bg-white/10 border-white/40 hover:bg-white/20"
+                : "bg-white/10 border-white/40 hover:bg-white/20",
+             showPresets && !isOpen ? "translate-y-7" : "" 
         )}
         aria-label="Toggle Audio"
     >
