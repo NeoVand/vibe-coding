@@ -280,7 +280,9 @@
     }
 
     onMount(() => {
-        audio = new Audio('/music/intro-wind.mp3');
+        const base = import.meta.env.BASE_URL;
+        const audioPath = `${base === '/' ? '' : base}/music/intro-wind.mp3`;
+        audio = new Audio(audioPath);
         audio.loop = true;
         audio.volume = 0; // Start silent
         

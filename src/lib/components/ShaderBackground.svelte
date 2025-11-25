@@ -374,7 +374,11 @@
 
         const loader = new THREE.TextureLoader();
         
-        noiseTex = loader.load('/textures/noise.png');
+        const base = import.meta.env.BASE_URL;
+        const noisePath = `${base === '/' ? '' : base}/textures/noise.png`;
+        const blueNoisePath = `${base === '/' ? '' : base}/textures/blue_noise.png`;
+        
+        noiseTex = loader.load(noisePath);
         noiseTex.wrapS = THREE.RepeatWrapping;
         noiseTex.wrapT = THREE.RepeatWrapping;
         noiseTex.minFilter = THREE.LinearMipMapLinearFilter;
@@ -382,7 +386,7 @@
         noiseTex.generateMipmaps = true;
         noiseTex.colorSpace = THREE.NoColorSpace;
         
-        blueNoiseTex = loader.load('/textures/blue_noise.png');
+        blueNoiseTex = loader.load(blueNoisePath);
         blueNoiseTex.wrapS = THREE.RepeatWrapping;
         blueNoiseTex.wrapT = THREE.RepeatWrapping;
         blueNoiseTex.minFilter = THREE.LinearMipMapLinearFilter; 
