@@ -15,6 +15,10 @@
     let resizeObserver: ResizeObserver;
     let noiseTex: THREE.Texture;
     let blueNoiseTex: THREE.Texture;
+    let isPortrait = false;
+    let camera: THREE.OrthographicCamera;
+    let scene: THREE.Scene;
+    let geometry: THREE.PlaneGeometry;
 
     // Integration state variables
     let camZ = 0;
@@ -22,15 +26,15 @@
 
     // Helper for color interpolation
     const colorTargets = {
-        bgColor: new THREE.Color(),
-        lightColor1: new THREE.Color(),
-        lightColor2: new THREE.Color(),
-        cloudBaseCol: new THREE.Color(),
-        cloudShadowCol: new THREE.Color(),
-        sunGlowCol: new THREE.Color(),
-        sunCoreCol: new THREE.Color(),
-        sunGlareCol: new THREE.Color(),
-        lightningColor: new THREE.Color(),
+        bgColor: new THREE.Color(params.bgColor),
+        lightColor1: new THREE.Color(params.lightColor1),
+        lightColor2: new THREE.Color(params.lightColor2),
+        cloudBaseCol: new THREE.Color(params.cloudBaseCol),
+        cloudShadowCol: new THREE.Color(params.cloudShadowCol),
+        sunGlowCol: new THREE.Color(params.sunGlowCol),
+        sunCoreCol: new THREE.Color(params.sunCoreCol),
+        sunGlareCol: new THREE.Color(params.sunGlareCol),
+        lightningColor: new THREE.Color(params.lightningColor),
     };
 
 	const vertexShader = `
@@ -483,11 +487,13 @@
         if (!container || !canvas) return;
 
 		renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", alpha: false });
+        // Set initial background to match params immediately
+        renderer.setClearColor(new THREE.Color(params.bgColor));
 		// Initial setup will be handled by the effect below
 		
-		const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-		const scene = new THREE.Scene();
-		const geometry = new THREE.PlaneGeometry(2, 2);
+		camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+		scene = new THREE.Scene();
+		geometry = new THREE.PlaneGeometry(2, 2);
 
         const loader = new THREE.TextureLoader();
         
@@ -571,6 +577,9 @@
             const width = container.clientWidth;
             const height = container.clientHeight;
             
+            // Check orientation for mobile optimization
+            isPortrait = height > width;
+            
             // Dynamic Resolution Scaling
             // 1. Cap the pixel ratio (e.g., stop at 1.5x even on 3x screens)
             const pixelRatio = Math.min(window.devicePixelRatio, params.pixelRatioCap);
@@ -588,6 +597,9 @@
             const drawingBuffer = new THREE.Vector2();
             renderer.getDrawingBufferSize(drawingBuffer);
 			material.uniforms.iResolution.value.set(drawingBuffer.x, drawingBuffer.y, 1);
+
+            // FIX: Render immediately to prevent flashing
+            renderer.render(scene, camera);
 		};
 
         resizeObserver = new ResizeObserver(resize);
@@ -611,7 +623,11 @@
 
                 // --- SMOOTH PARAMETER INTERPOLATION ---
                 material.uniforms.CAM_SPEED.value += (params.camSpeed - material.uniforms.CAM_SPEED.value) * lerpFactor;
-                material.uniforms.CAM_FOV.value += (params.camFov - material.uniforms.CAM_FOV.value) * lerpFactor;
+                
+                // Apply FOV multiplier for mobile/portrait to keep animation in frame
+                const targetFov = params.camFov * (isPortrait ? 1.2 : 1.0);
+                material.uniforms.CAM_FOV.value += (targetFov - material.uniforms.CAM_FOV.value) * lerpFactor;
+                
                 material.uniforms.CAM_ROLL_AMP.value += (params.camRollAmp - material.uniforms.CAM_ROLL_AMP.value) * lerpFactor;
                 material.uniforms.CAM_ROLL_FREQ.value += (params.camRollFreq - material.uniforms.CAM_ROLL_FREQ.value) * lerpFactor;
                 material.uniforms.CAM_LOOK_AHEAD.value += (params.camLookAhead - material.uniforms.CAM_LOOK_AHEAD.value) * lerpFactor;
@@ -683,6 +699,11 @@
         colorTargets.sunCoreCol.set(params.sunCoreCol);
         colorTargets.sunGlareCol.set(params.sunGlareCol);
         colorTargets.lightningColor.set(params.lightningColor);
+        
+        // Ensure clear color is synced with background color target to minimize flash artifact
+        if (renderer) {
+            renderer.setClearColor(colorTargets.bgColor);
+        }
 
         if (material) {
             material.uniforms.LOOK.value = params.look;
@@ -711,6 +732,9 @@
                  const drawingBuffer = new THREE.Vector2();
                  renderer.getDrawingBufferSize(drawingBuffer);
                  material.uniforms.iResolution.value.set(drawingBuffer.x, drawingBuffer.y, 1);
+                 
+                 // FIX: Render immediately after setSize changes
+                 renderer.render(scene, camera);
             }
         }
     });
