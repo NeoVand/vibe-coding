@@ -603,7 +603,11 @@
                 const dt = clock.getDelta();
                 material.uniforms.iTime.value = clock.elapsedTime; 
 
-                const lerpFactor = 1.0 - Math.exp(-dt * 5.0); 
+                // Interpolation factor for smooth transitions
+                // Value logic: 1.0 - exp(-dt * speed)
+                // Speed 5.0 -> ~8% per frame (60fps) -> Fast
+                // Speed 1.5 -> ~2.5% per frame (60fps) -> Slow/Graceful
+                const lerpFactor = 1.0 - Math.exp(-dt * 0.5); 
 
                 // --- SMOOTH PARAMETER INTERPOLATION ---
                 material.uniforms.CAM_SPEED.value += (params.camSpeed - material.uniforms.CAM_SPEED.value) * lerpFactor;
@@ -655,7 +659,10 @@
                 material.uniforms.uVortexPhase.value = vortexPhase;
                 
                 // Update Audio Uniforms
-                material.uniforms.LIGHTNING_AUDIO_SYNC.value = params.lightningAudioSync ? 1 : 0;
+                // Fallback to random mode if audio sync is requested but music is not playing
+                const shouldUseAudio = params.lightningAudioSync && $audioState.isPlaying;
+                material.uniforms.LIGHTNING_AUDIO_SYNC.value = shouldUseAudio ? 1 : 0;
+                
                 // We access the store value directly for max speed
                 material.uniforms.AUDIO_BEAT.value = $audioState.beat;
             }
