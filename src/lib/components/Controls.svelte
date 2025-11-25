@@ -41,26 +41,67 @@
     let ActiveIcon = $derived(PRESETS.find(p => p.id === activePresetId)?.icon || PRESETS[0].icon);
 
     function handleMainMouseEnter() {
-        if (isOpen) return;
+        if (isOpen || isTouch) return;
         clearTimeout(hoverTimeout);
         showPresets = true;
     }
 
     function handleMainMouseLeave() {
-        if (isOpen) return; // Don't hide if open
+        if (isOpen || isTouch) return; // Don't hide if open
         // Use a longer timeout to allow bridging the gap
         hoverTimeout = setTimeout(() => {
             showPresets = false;
         }, 300); // Increased from 100ms
     }
     
-    function handleMobileClick(e: MouseEvent) {
-        // Keep this if we want to use it for touch events explicitly, 
-        // but standard click handler usually covers it.
-        // For now, I'll remove the duplicate logic and rely on handleClick.
+    // Touch handling for Mobile
+    let longPressTimer: ReturnType<typeof setTimeout>;
+    let isLongPress = $state(false);
+    let isTouch = $state(false);
+
+    function handleTouchStart(e: TouchEvent) {
+        isTouch = true;
+        isLongPress = false;
+        longPressTimer = setTimeout(() => {
+            isLongPress = true;
+            // Long Press: Open GUI, Hide Presets
+            isOpen = true;
+            showPresets = false;
+            if (navigator.vibrate) navigator.vibrate(50);
+        }, 500);
+    }
+
+    function handleTouchEnd(e: TouchEvent) {
+        clearTimeout(longPressTimer);
+        e.preventDefault(); // Prevent default click/mouse emulation
+        
+        if (isLongPress) {
+            return; // Long press action handled in timer
+        }
+        
+        // Short Tap Logic
+        if (isOpen) {
+            // If GUI open, close it (Toggle behavior)
+            toggle();
+        } else {
+            // Toggle presets visibility
+            showPresets = !showPresets;
+        }
+    }
+
+    function handleContextMenu(e: Event) {
+        if (isTouch) e.preventDefault();
     }
     
     function handleClick(e: MouseEvent) {
+        // If we just had a touch event, ignore this click (double safety, though preventDefault handles it)
+        if (isTouch) {
+             // Reset touch flag after a delay to allow mouse usage again if hybrid device?
+             // For now, just return.
+             // Actually, preventDefault in touchend stops this from firing usually.
+             return;
+        }
+
         if (!isOpen && !showPresets) {
             showPresets = true;
             return;
@@ -285,15 +326,15 @@
         const audioPath = `${base === '/' ? '' : base}/music/intro-wind.mp3`;
         audio = new Audio(audioPath);
         audio.loop = true;
-        audio.volume = 0; // Start silent
+        // Remove initial silence and fade-in to fix "not immediately on" issue
+        // audio.volume = 0; 
         
-        // Attempt auto-play with fade in
-        // Note: Most browsers block autoplay with sound until user interaction.
-        // We try anyway, but handle failure gracefully.
+        // Attempt auto-play
         audio.play().then(() => {
-             fadeVolume(1.0);
              initAudioContext(); 
-             // If successful, ensure state reflects it
+             if (audioContext && audioContext.state === 'suspended') {
+                 audioContext.resume();
+             }
              isMuted = false;
         }).catch(() => {
             // Autoplay blocked - set UI to muted state
@@ -574,6 +615,9 @@
 
         <button 
             onclick={handleClick}
+            ontouchstart={handleTouchStart}
+            ontouchend={handleTouchEnd}
+            oncontextmenu={handleContextMenu}
             class={cn(
                 "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border z-10",
                 isDarkScene 
