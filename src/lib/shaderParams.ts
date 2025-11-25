@@ -34,6 +34,12 @@ export type ShaderParams = {
     sunGlareCol: string;
     sunGlarePow: number;
     
+    // Lightning
+    lightningEnabled: number;
+    lightningChance: number;
+    lightningColor: string;
+    lightningIntensity: number;
+    
     // Performance Tuning
     pixelRatioCap: number;    // Hard cap on devicePixelRatio (e.g. 1.0, 1.5, 2.0)
     renderScale: number;      // Internal resolution scaler (0.1 - 1.0)
@@ -94,6 +100,12 @@ export const defaultParams: ShaderParams = {
     sunCorePow: 80.0,
     sunGlareCol: '#FFD9CC',   // vec3(1.0, 0.8, 0.7) -> sRGB(1.0, 0.9, 0.85) approx
     sunGlarePow: 8.0,
+
+    // Lightning
+    lightningEnabled: 0,      // 0 or 1
+    lightningChance: 0.5,     // How often it flashes
+    lightningColor: '#FFFFFF', // Color of the lightning
+    lightningIntensity: 1.0,  // Strength of the lightning
 
     // Performance Defaults
     pixelRatioCap: 1.5,       // Good balance for Retina screens

@@ -29,6 +29,7 @@
         sunGlowCol: new THREE.Color(),
         sunCoreCol: new THREE.Color(),
         sunGlareCol: new THREE.Color(),
+        lightningColor: new THREE.Color(),
     };
 
 	const vertexShader = `
@@ -83,6 +84,11 @@
         uniform float SUN_CORE_POW;
         uniform vec3 SUN_GLARE_COL;
         uniform float SUN_GLARE_POW;
+
+        uniform int LIGHTNING_ENABLED;
+        uniform float LIGHTNING_CHANCE;
+        uniform vec3 LIGHTNING_COLOR;
+        uniform float LIGHTNING_INTENSITY;
     `;
 
     // Adapted from ShaderToy code
@@ -98,16 +104,76 @@
         }
 
         // --- NOISE FUNCTIONS ---
+        float hash(float n) { return fract(sin(n)*43758.5453123); }
+        
         float noise(in vec3 x)
         {
             vec3 p = floor(x);
             vec3 f = fract(x);
             f = f * f * (3.0 - 2.0 * f);
-
+            
+            // Simple hash for lightning noise if needed, but we use texture below
+            // ...
+            
             // NOISE_METHOD 1: Two 2D texture lookups
             vec2 uv = (p.xy + vec2(37.0, 239.0) * p.z) + f.xy;
             vec2 rg = textureLod(iChannel0, (uv + 0.5) / 256.0, 0.0).yx;
             return mix(rg.x, rg.y, f.z) * 2.0 - 1.0;  
+        }
+
+        // --- LIGHTNING FUNCTION ---
+        // Returns { intensity (0-1+), flashFactor (0-1) }
+        vec2 getLightningField(vec3 p, float time) {
+            if (LIGHTNING_ENABLED == 0) return vec2(0.0);
+
+            // Timing
+            float t = time * 8.0;
+            float id = floor(t);
+            float localT = fract(t);
+            
+            // Random chance
+            if (hash(id) > LIGHTNING_CHANCE) return vec2(0.0);
+            
+            // Flash envelope - fast attack, slow decay
+            float flash = smoothstep(0.0, 0.1, localT) * smoothstep(1.0, 0.3, localT);
+            flash = pow(flash, 3.0); 
+            
+            if (flash < 0.001) return vec2(0.0);
+
+            // Path / Position
+            // Determine a random angle for this strike
+            float strikeAngle = hash(id + 13.0) * 6.28;
+            
+            vec3 pPath = path(p.z);
+            vec3 relP = p - pPath;
+            
+            // Wiggle the angle along Z to make it a "vein"
+            // Use lower frequency for main shape
+            float wiggle = noise(vec3(0.0, 0.0, p.z * 0.15 + id * 10.0)) * 2.0; 
+            // Add detail
+            wiggle += noise(vec3(0.0, 0.0, p.z * 0.8)) * 0.5;
+            
+            float targetAngle = strikeAngle + wiggle;
+            float myAngle = atan(relP.y, relP.x);
+            float diff = abs(myAngle - targetAngle);
+            if (diff > 3.14159) diff = 6.28318 - diff;
+            
+            // Distance from center (wall proximity)
+            float r = length(relP.xy);
+            float distFromWall = abs(r - TUNNEL_RADIUS);
+            
+            // Combined distance to the "vein"
+            // We treat the vein as a line running along the wall at that angle
+            float d = length(vec2(diff * r, distFromWall));
+            
+            // Volumetric Glow Falloff
+            // Inverse square law-ish for the glow
+            float glow = 1.0 / (d * d + 0.1);
+            
+            // Core Beam (The actual plasma channel) - Thinner and sharper
+            float core = 0.002 / (d * d + 0.0001);
+            
+            return vec2(core, glow) * flash;
         }
 
         // --- MAP FUNCTION ---
@@ -274,10 +340,18 @@
                    // Light Colors
                    vec3  lin = LIGHT_COLOR_1 * 1.1 + 0.8 * LIGHT_COLOR_2 * dif;
                    
+                   // Lightning Calculation
+                   vec2 lightning = getLightningField(pos, iTime);
+                   // Add volumetric glow to lighting (illuminates the cloud)
+                   lin += LIGHTNING_COLOR * lightning.y * LIGHTNING_INTENSITY * 5.0;
+
                    // Cloud Color Mixing
                    vec4  col = vec4(mix(CLOUD_BASE_COL, CLOUD_SHADOW_COL, den), den);
                    
                    col.xyz *= lin;
+                   
+                   // Add Core (Emissive Plasma) - cuts through everything
+                   col.xyz += LIGHTNING_COLOR * lightning.x * LIGHTNING_INTENSITY * 10.0;
                    
                    // Fog
                    col.xyz = mix(col.xyz, bgcol, 1.0 - exp2(-FOG_DENSITY * t));
@@ -437,6 +511,10 @@
                 SUN_CORE_POW: { value: params.sunCorePow },
                 SUN_GLARE_COL: { value: new THREE.Color(params.sunGlareCol) },
                 SUN_GLARE_POW: { value: params.sunGlarePow },
+                LIGHTNING_ENABLED: { value: params.lightningEnabled },
+                LIGHTNING_CHANCE: { value: params.lightningChance },
+                LIGHTNING_COLOR: { value: new THREE.Color(params.lightningColor) },
+                LIGHTNING_INTENSITY: { value: params.lightningIntensity },
 			}
 		});
 
@@ -507,6 +585,10 @@
                 material.uniforms.SUN_GLOW_POW.value += (params.sunGlowPow - material.uniforms.SUN_GLOW_POW.value) * lerpFactor;
                 material.uniforms.SUN_CORE_POW.value += (params.sunCorePow - material.uniforms.SUN_CORE_POW.value) * lerpFactor;
                 material.uniforms.SUN_GLARE_POW.value += (params.sunGlarePow - material.uniforms.SUN_GLARE_POW.value) * lerpFactor;
+                
+                material.uniforms.LIGHTNING_ENABLED.value = params.lightningEnabled;
+                material.uniforms.LIGHTNING_CHANCE.value = params.lightningChance;
+                material.uniforms.LIGHTNING_INTENSITY.value = params.lightningIntensity;
 
                 material.uniforms.BG_COLOR.value.lerp(colorTargets.bgColor, lerpFactor);
                 material.uniforms.LIGHT_COLOR_1.value.lerp(colorTargets.lightColor1, lerpFactor);
@@ -516,6 +598,7 @@
                 material.uniforms.SUN_GLOW_COL.value.lerp(colorTargets.sunGlowCol, lerpFactor);
                 material.uniforms.SUN_CORE_COL.value.lerp(colorTargets.sunCoreCol, lerpFactor);
                 material.uniforms.SUN_GLARE_COL.value.lerp(colorTargets.sunGlareCol, lerpFactor);
+                material.uniforms.LIGHTNING_COLOR.value.lerp(colorTargets.lightningColor, lerpFactor);
 
                 // --- INTEGRATION ---
                 // Integrate position and rotation based on *current* smoothed speed
@@ -542,6 +625,7 @@
         colorTargets.sunGlowCol.set(params.sunGlowCol);
         colorTargets.sunCoreCol.set(params.sunCoreCol);
         colorTargets.sunGlareCol.set(params.sunGlareCol);
+        colorTargets.lightningColor.set(params.lightningColor);
 
         if (material) {
             material.uniforms.LOOK.value = params.look;

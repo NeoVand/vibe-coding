@@ -509,9 +509,14 @@
                 { key: 'noiseScaleDet', label: 'Detail', min: 0.1, max: 2.0, step: 0.01, type: 'slider' },
                 { key: 'cloudDensity', label: 'Density', min: 0, max: 10.0, step: 0.01, type: 'slider' },
                 { key: 'drawDist', label: 'Dist', min: 10, max: 200, step: 0.1, type: 'slider' },
+                // Lightning
+                { key: 'lightningEnabled', label: 'Lightning', type: 'checkbox' },
+                { key: 'lightningChance', label: 'Flash Freq', min: 0.0, max: 1.0, step: 0.01, type: 'slider' },
+                { key: 'lightningIntensity', label: 'Intensity', min: 0.0, max: 5.0, step: 0.1, type: 'slider' },
                 // Colors
                 { key: 'cloudBaseCol', label: 'Base', type: 'color' },
                 { key: 'cloudShadowCol', label: 'Shadow', type: 'color' },
+                { key: 'lightningColor', label: 'Lightning', type: 'color' },
             ]
         },
         {
@@ -626,92 +631,96 @@
                         <div class="flex flex-col gap-4 mt-1">
                             <!-- Sliders & Checkboxes -->
                             {#each group.items.filter(i => i.type === 'slider' || i.type === 'checkbox') as item}
-                                <div class="group/slider flex flex-col gap-1.5 relative">
-                                    <div class={cn(
-                                        "flex justify-between items-end text-[10px] font-bold tracking-wide transition-colors",
-                                        isDarkScene ? "text-white/70 group-hover/slider:text-white" : "text-black/60 group-hover/slider:text-black"
-                                    )}>
-                                        <label for={item.key}>{item.label}</label>
+                                {#if (item.key !== 'lightningChance' && item.key !== 'lightningIntensity') || params.lightningEnabled}
+                                    <div class="group/slider flex flex-col gap-1.5 relative">
+                                        <div class={cn(
+                                            "flex justify-between items-end text-[10px] font-bold tracking-wide transition-colors",
+                                            isDarkScene ? "text-white/70 group-hover/slider:text-white" : "text-black/60 group-hover/slider:text-black"
+                                        )}>
+                                            <label for={item.key}>{item.label}</label>
+                                            {#if item.type === 'slider'}
+                                                <span class={cn(
+                                                    "font-mono text-[9px] opacity-60 px-1 rounded",
+                                                    isDarkScene ? "bg-white/10" : "bg-black/5"
+                                                )}>
+                                                    {typeof params[item.key] === 'number' 
+                                                        ? (params[item.key] as number).toFixed(item.step && item.step < 0.1 ? 3 : (item.step && item.step < 1 ? 2 : 0))
+                                                        : params[item.key]}
+                                                </span>
+                                            {/if}
+                                        </div>
+
                                         {#if item.type === 'slider'}
-                                            <span class={cn(
-                                                "font-mono text-[9px] opacity-60 px-1 rounded",
-                                                isDarkScene ? "bg-white/10" : "bg-black/5"
-                                            )}>
-                                                {typeof params[item.key] === 'number' 
-                                                    ? (params[item.key] as number).toFixed(item.step && item.step < 0.1 ? 3 : (item.step && item.step < 1 ? 2 : 0))
-                                                    : params[item.key]}
-                                            </span>
+                                            <input 
+                                                type="range" 
+                                                id={item.key} 
+                                                min={item.min} 
+                                                max={item.max} 
+                                                step={item.step}
+                                                bind:value={params[item.key] as number}
+                                                class={cn(
+                                                    "slider-input w-full h-0.5 rounded-full cursor-pointer appearance-none transition-colors",
+                                                    isDarkScene ? "bg-white/20 hover:bg-white/40" : "bg-black/10 hover:bg-black/30"
+                                                )}
+                                            />
+                                        {:else if item.type === 'checkbox'}
+                                            <button
+                                                onclick={() => {
+                                                     // TS workaround: Force cast the key access
+                                                     (params as any)[item.key] = params[item.key] ? 0 : 1; 
+                                                }}
+                                                class={cn(
+                                                    "w-full flex items-center gap-3 p-2 rounded-md transition-all duration-200 border",
+                                                    isDarkScene 
+                                                        ? "bg-white/5 border-white/10 hover:bg-white/10" 
+                                                        : "bg-black/5 border-black/5 hover:bg-black/10",
+                                                    params[item.key] ? (isDarkScene ? "bg-white/20 border-white/30" : "bg-black/10 border-black/20") : ""
+                                                )}
+                                            >
+                                                <div class={cn(
+                                                    "w-4 h-4 rounded flex items-center justify-center transition-colors border",
+                                                    isDarkScene ? "border-white/40" : "border-black/40",
+                                                    params[item.key] ? (isDarkScene ? "bg-white text-black border-white" : "bg-black text-white border-black") : "bg-transparent"
+                                                )}>
+                                                     {#if params[item.key]}
+                                                        <Check size={10} strokeWidth={4} />
+                                                     {/if}
+                                                </div>
+                                                <span class={cn("text-xs opacity-80", isDarkScene ? "text-white" : "text-black")}>
+                                                    {params[item.key] ? "Enabled" : "Disabled"}
+                                                </span>
+                                            </button>
                                         {/if}
                                     </div>
-
-                                    {#if item.type === 'slider'}
-                                        <input 
-                                            type="range" 
-                                            id={item.key} 
-                                            min={item.min} 
-                                            max={item.max} 
-                                            step={item.step}
-                                            bind:value={params[item.key] as number}
-                                            class={cn(
-                                                "slider-input w-full h-0.5 rounded-full cursor-pointer appearance-none transition-colors",
-                                                isDarkScene ? "bg-white/20 hover:bg-white/40" : "bg-black/10 hover:bg-black/30"
-                                            )}
-                                        />
-                                    {:else if item.type === 'checkbox'}
-                                        <button
-                                            onclick={() => {
-                                                 // TS workaround: Force cast the key access
-                                                 (params as any)[item.key] = params[item.key] ? 0 : 1; 
-                                            }}
-                                            class={cn(
-                                                "w-full flex items-center gap-3 p-2 rounded-md transition-all duration-200 border",
-                                                isDarkScene 
-                                                    ? "bg-white/5 border-white/10 hover:bg-white/10" 
-                                                    : "bg-black/5 border-black/5 hover:bg-black/10",
-                                                params[item.key] ? (isDarkScene ? "bg-white/20 border-white/30" : "bg-black/10 border-black/20") : ""
-                                            )}
-                                        >
-                                            <div class={cn(
-                                                "w-4 h-4 rounded flex items-center justify-center transition-colors border",
-                                                isDarkScene ? "border-white/40" : "border-black/40",
-                                                params[item.key] ? (isDarkScene ? "bg-white text-black border-white" : "bg-black text-white border-black") : "bg-transparent"
-                                            )}>
-                                                 {#if params[item.key]}
-                                                    <Check size={10} strokeWidth={4} />
-                                                 {/if}
-                                            </div>
-                                            <span class={cn("text-xs opacity-80", isDarkScene ? "text-white" : "text-black")}>
-                                                {params[item.key] ? "Enabled" : "Disabled"}
-                                            </span>
-                                        </button>
-                                    {/if}
-                                </div>
+                                {/if}
                             {/each}
 
                             <!-- Colors Row -->
                             {#if group.items.filter(i => i.type === 'color').length > 0}
                                 <div class="grid grid-cols-3 gap-2 mt-2">
                                     {#each group.items.filter(i => i.type === 'color') as color}
-                                        <div class="flex flex-col items-center gap-1.5">
-                                            <div class={cn(
-                                                "w-7 h-7 rounded-full overflow-hidden ring-1 hover:scale-110 transition-all cursor-pointer shadow-sm relative",
-                                                isDarkScene ? "ring-white/20 hover:ring-white/60" : "ring-black/10 hover:ring-black/40"
-                                            )}>
-                                                <input 
-                                                    type="color" 
-                                                    id={color.key} 
-                                                    bind:value={params[color.key] as string}
-                                                    class="absolute inset-0 -top-[50%] -left-[50%] w-[200%] h-[200%] p-0 m-0 border-0 cursor-pointer opacity-0"
-                                                />
-                                                <div class="w-full h-full" style:background-color={params[color.key] as string}></div>
+                                        {#if color.key !== 'lightningColor' || params.lightningEnabled}
+                                            <div class="flex flex-col items-center gap-1.5">
+                                                <div class={cn(
+                                                    "w-7 h-7 rounded-full overflow-hidden ring-1 hover:scale-110 transition-all cursor-pointer shadow-sm relative",
+                                                    isDarkScene ? "ring-white/20 hover:ring-white/60" : "ring-black/10 hover:ring-black/40"
+                                                )}>
+                                                    <input 
+                                                        type="color" 
+                                                        id={color.key} 
+                                                        bind:value={params[color.key] as string}
+                                                        class="absolute inset-0 -top-[50%] -left-[50%] w-[200%] h-[200%] p-0 m-0 border-0 cursor-pointer opacity-0"
+                                                    />
+                                                    <div class="w-full h-full" style:background-color={params[color.key] as string}></div>
+                                                </div>
+                                                <label for={color.key} class={cn(
+                                                    "text-[8px] font-semibold uppercase tracking-wide text-center leading-tight w-full transition-colors",
+                                                    isDarkScene ? "text-white/50" : "text-black/50"
+                                                )}>
+                                                    {color.label}
+                                                </label>
                                             </div>
-                                            <label for={color.key} class={cn(
-                                                "text-[8px] font-semibold uppercase tracking-wide text-center leading-tight w-full transition-colors",
-                                                isDarkScene ? "text-white/50" : "text-black/50"
-                                            )}>
-                                                {color.label}
-                                            </label>
-                                        </div>
+                                        {/if}
                                     {/each}
                                 </div>
                             {/if}
@@ -735,7 +744,19 @@
         <!-- Use a keyed block to ensure Svelte tracks entrance/exit correctly when showPresets changes -->
          {#if showPresets && !isOpen}
             {#each PRESETS as preset, i (preset.id)}
-                {@const angle = Math.PI - (i * (Math.PI / 2) / (PRESETS.length - 1))}
+                <!-- 
+                    Original Arc: 90 degrees (0 to PI/2)
+                    Previous Arc: 100 degrees (-5deg to 95deg)
+                    New Arc: 104 degrees (-7deg to 97deg)
+                    
+                    Math:
+                    Start Angle = PI + (7deg in radians)
+                    Total Sweep = 90deg + 14deg = 104deg
+                -->
+                {@const totalSweep = (Math.PI / 2) + (14 * Math.PI / 180)} 
+                {@const startAngle = Math.PI + (7 * Math.PI / 180)}
+                {@const angle = startAngle - (i * totalSweep / (PRESETS.length - 1))}
+                
                 {@const r = 42} 
                 {@const x = Math.cos(angle) * r}
                 {@const y = Math.sin(angle) * r}

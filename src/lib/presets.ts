@@ -42,6 +42,8 @@ export const PRESETS: Preset[] = [
             noiseScaleDet: 0.8,
             cloudDensity: 3.8,
             drawDist: 80,
+            lightningEnabled: 0,
+            lightningIntensity: 1.0,
         }
     },
     {
@@ -73,6 +75,8 @@ export const PRESETS: Preset[] = [
             pathFreqX: 0.2,
             pathAmpY: 2.99,
             pathFreqY: 0.15,
+            lightningEnabled: 0,
+            lightningIntensity: 0.5,
         }
     },
     {
@@ -90,9 +94,16 @@ export const PRESETS: Preset[] = [
             sunGlareCol: '#0F2D61',
             vortexSpeed: 0.9,
             vortexTwist: -0.15,
+            noiseScaleBase: 0.3,
             noiseScaleDet: 0.9,
+            cloudDensity: 3.0,
+            drawDist: 80,
             sunCorePow: 11,
-            sunGlarePow: 16
+            sunGlarePow: 16,
+            lightningEnabled: 1,
+            lightningChance: 0.46,
+            lightningColor: '#acabce',
+            lightningIntensity: 1.4,
         }
     },
     {
@@ -127,6 +138,8 @@ export const PRESETS: Preset[] = [
             camRollFreq: 0.1,
             camLookAhead: 1,
             sunPathOffset: 30.4,
+            lightningEnabled: 0,
+            lightningIntensity: 0.8,
         }
     }
 ];
