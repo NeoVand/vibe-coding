@@ -21,7 +21,9 @@ export const PRESETS: Preset[] = [
             cloudShadowCol: '#59597A',
             sunGlowCol: '#FFFFFF',
             sunCoreCol: '#FFFFFF',
-            sunGlareCol: '#FFD9CC'
+            sunGlareCol: '#FFD9CC',
+            vortexSpeed: 0.3,
+            vortexTwist: 0.1,
         }
     },
     {
@@ -39,7 +41,9 @@ export const PRESETS: Preset[] = [
             sunGlareCol: '#E2C5A7',
             cloudDensity: 3.8,
             sunCorePow: 36,
-            sunGlarePow: 16
+            sunGlarePow: 16,
+            vortexSpeed: -0.6,
+            vortexTwist: 0.2,
         }
     },
     {
@@ -76,7 +80,9 @@ export const PRESETS: Preset[] = [
             sunCoreCol: '#FFFCE5',
             sunGlareCol: '#10337A',
             sunCorePow: 67,
-            sunGlarePow: 16
+            sunGlarePow: 16,
+            vortexSpeed: -0.6,
+            vortexTwist: 0.2,
         }
     }
 ];
