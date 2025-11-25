@@ -102,8 +102,10 @@ export const PRESETS: Preset[] = [
             sunGlarePow: 16,
             lightningEnabled: 1,
             lightningChance: 0.46,
-            lightningColor: '#acabce',
+            lightningColor: '#cccbec',
             lightningIntensity: 1.4,
+            lightningAudioSync: 1,
+            lightningThreshold: 0.81,
         }
     },
     {

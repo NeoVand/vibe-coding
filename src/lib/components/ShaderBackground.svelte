@@ -2,7 +2,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import * as THREE from 'three';
-	import type { ShaderParams } from '$lib/shaderParams';
+    import type { ShaderParams } from '$lib/shaderParams';
+    import { audioState } from '$lib/stores/audio';
 
 	let { params }: { params: ShaderParams } = $props();
 
@@ -89,6 +90,9 @@
         uniform float LIGHTNING_CHANCE;
         uniform vec3 LIGHTNING_COLOR;
         uniform float LIGHTNING_INTENSITY;
+        
+        uniform int LIGHTNING_AUDIO_SYNC;
+        uniform float AUDIO_BEAT;
     `;
 
     // Adapted from ShaderToy code
@@ -131,17 +135,56 @@
             float id = floor(t);
             float localT = fract(t);
             
-            // Random chance
-            if (hash(id) > LIGHTNING_CHANCE) return vec2(0.0);
+            // Random chance logic (Standard vs Audio Sync)
+            float chance = LIGHTNING_CHANCE;
+            bool triggered = false;
             
-            // Flash envelope - fast attack, slow decay
-            float flash = smoothstep(0.0, 0.1, localT) * smoothstep(1.0, 0.3, localT);
-            flash = pow(flash, 3.0); 
+            if (LIGHTNING_AUDIO_SYNC == 1) {
+                // Audio Sync Mode:
+                // 1. Use AUDIO_BEAT uniform (value 0.0 - 1.0) to trigger
+                // 2. Still use randomness to decide WHERE it strikes (id), 
+                //    but the TIMING is driven by the beat.
+                // 3. Maybe boost chance significantly when beat is high?
+                
+                // Thresholding in shader is tricky due to interpolation, 
+                // but we can check if beat > 0.1
+                if (AUDIO_BEAT > 0.1) {
+                    // Beat happened recently.
+                    // We use the beat value as the "flash" envelope directly or mix it?
+                    triggered = true;
+                }
+            } else {
+                // Standard Random Mode
+                if (hash(id) < chance) {
+                    triggered = true;
+                }
+            }
+            
+            if (!triggered) return vec2(0.0);
+            
+            // Flash envelope
+            float flash = 0.0;
+            
+            if (LIGHTNING_AUDIO_SYNC == 1) {
+                // Use the beat envelope directly for smooth decay
+                // Squared for sharper attack
+                flash = pow(AUDIO_BEAT, 2.0); 
+            } else {
+                // Standard ADSR
+                flash = smoothstep(0.0, 0.1, localT) * smoothstep(1.0, 0.3, localT);
+                flash = pow(flash, 3.0); 
+            }
             
             if (flash < 0.001) return vec2(0.0);
 
             // Path / Position
             // Determine a random angle for this strike
+            // In Audio Sync, we need to make sure the 'id' (position seed) 
+            // changes with every beat or time step.
+            // Using 'id' derived from 'time' works if 'time' keeps moving.
+            // But for Audio Sync, we might want the bolt to stay for the duration of the beat?
+            // No, lightning is instant.
+            
             float strikeAngle = hash(id + 13.0) * 6.28;
             
             vec3 pPath = path(p.z);
@@ -515,6 +558,8 @@
                 LIGHTNING_CHANCE: { value: params.lightningChance },
                 LIGHTNING_COLOR: { value: new THREE.Color(params.lightningColor) },
                 LIGHTNING_INTENSITY: { value: params.lightningIntensity },
+                LIGHTNING_AUDIO_SYNC: { value: params.lightningAudioSync || 0 },
+                AUDIO_BEAT: { value: 0 },
 			}
 		});
 
@@ -608,6 +653,11 @@
 
                 material.uniforms.uCamZ.value = camZ;
                 material.uniforms.uVortexPhase.value = vortexPhase;
+                
+                // Update Audio Uniforms
+                material.uniforms.LIGHTNING_AUDIO_SYNC.value = params.lightningAudioSync ? 1 : 0;
+                // We access the store value directly for max speed
+                material.uniforms.AUDIO_BEAT.value = $audioState.beat;
             }
 
 			renderer.render(scene, camera);

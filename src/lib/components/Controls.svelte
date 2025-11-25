@@ -1,6 +1,6 @@
 
 <script lang="ts">
-    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check } from 'lucide-svelte';
+    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check, Gauge } from 'lucide-svelte';
     import { PRESETS, type Preset } from '$lib/presets';
 	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
 	import { slide, fly, scale } from 'svelte/transition';
@@ -9,6 +9,8 @@
     import { clsx } from 'clsx';
     import { twMerge } from 'tailwind-merge';
     import TunnelIcon from '$lib/components/icons/TunnelIcon.svelte';
+
+    import { audioState } from '$lib/stores/audio';
 
 	let { params = $bindable() }: { params: ShaderParams } = $props();
 
@@ -230,6 +232,9 @@
     // Smoothing state
     let smoothBass = 0;
     let smoothHigh = 0;
+    let smoothFlux = 0; // Background average of Spectral Flux
+    let previousSpectrum = new Float32Array(0);
+    let lastBeatTime = 0;
 
     function initAudioContext() {
         if (audioContext) return;
@@ -248,6 +253,9 @@
             analyser.connect(audioContext.destination);
         }
         
+        // Sync state
+        audioState.update(s => ({ ...s, isPlaying: true }));
+        
         updateVisualizer();
     }
 
@@ -255,6 +263,7 @@
         if (!analyser || isMuted || audio?.paused) {
             if (isMuted || audio?.paused) {
                  visualizerPath = "M 0 50 Q 50 50 100 50"; // Flat line
+                 audioState.update(s => ({ ...s, isPlaying: false }));
                  if (animationFrameId) cancelAnimationFrame(animationFrameId);
                  return;
             }
@@ -268,20 +277,68 @@
             const startBin = 5; 
             const midSplit = Math.floor(bufferLength * 0.2); 
             
+            let bassSum = 0;
             let midSum = 0;
             let highSum = 0;
             
-            for (let i = startBin; i < bufferLength; i++) {
-                if (i < midSplit) midSum += dataArray[i];
+            // BASS: 0 - 150Hz approx (bins 0 to ~15 at 44.1k/512)
+            // FFT resolution = 44100 / 512 ~= 86Hz per bin. Wait, 512 fftSize -> 256 bins. 
+            // Actually, sampleRate/fftSize = frequency resolution. 44100/512 = 86Hz. 
+            // Bin 0: DC, Bin 1: 86Hz, Bin 2: 172Hz. 
+            // Bass needs to be very low index.
+            
+            // Let's refine the ranges roughly
+            const bassEnd = 4; // ~350Hz
+            const midEnd = 64; // ~5kHz
+            
+            for (let i = 0; i < bufferLength; i++) {
+                if (i < bassEnd) bassSum += dataArray[i];
+                else if (i < midEnd) midSum += dataArray[i];
                 else highSum += dataArray[i];
             }
             
-            const midAvg = midSum / (midSplit - startBin);
-            const highAvg = highSum / (bufferLength - midSplit);
+            // Averages 0-255
+            const bassAvg = bassSum / bassEnd;
+            const midAvg = midSum / (midEnd - bassEnd);
+            const highAvg = highSum / (bufferLength - midEnd);
             
+            // Normalized 0-1
+            const nBass = bassAvg / 255;
+            const nMid = midAvg / 255;
+            const nHigh = highAvg / 255;
+            
+            // --- BEAT DETECTION (SPECTRAL FLUX) ---
+            const now = performance.now();
+            
+            // Initialize previous frame buffer if needed (or size changed)
+            if (previousSpectrum.length !== bufferLength) {
+                previousSpectrum = new Float32Array(bufferLength);
+            }
+            
+            // Calculate Flux: Sum of positive changes in energy per bin
+            // We focus on Bass/Mid-Low for rhythm detection (bins 0 to ~100)
+            // This avoids high-hats/noise triggering lightning too often
+            let currentFlux = 0;
+            const detectionCutoff = Math.min(bufferLength, 100); // ~4kHz limit
+            
+            for (let i = 0; i < detectionCutoff; i++) {
+                // Use dataArray (Uint8) normalized to 0-1
+                const value = dataArray[i] / 255;
+                const diff = value - previousSpectrum[i];
+                if (diff > 0) {
+                    currentFlux += diff;
+                }
+                // Update history
+                previousSpectrum[i] = value;
+            }
+            
+            // Normalize flux by number of bins check to keep it in manageable range
+            currentFlux /= detectionCutoff;
+            
+            // --- VISUALIZER LOGIC ---
             // Target Inputs
-            const targetMid = Math.max(0, (midAvg / 255) - 0.1) * 0.5; 
-            const targetHigh = Math.max(0, (highAvg / 255)) * 8.0; 
+            const targetMid = Math.max(0, nMid - 0.1) * 0.5; 
+            const targetHigh = nHigh * 8.0; 
             
             // Manual Smoothing with Asymmetric Attack/Release
             const smooth = (current: number, target: number, attack: number, decay: number) => {
@@ -295,10 +352,52 @@
             smoothBass = smooth(smoothBass, targetMid, 0.8, 0.1); 
             smoothHigh = smooth(smoothHigh, targetHigh, 0.8, 0.15);
             
+            // Update Flux Average (Adaptive Threshold)
+            // Slow attack/decay to track the "busy-ness" of the track
+            smoothFlux = smooth(smoothFlux, currentFlux, 0.05, 0.02); 
+            
+            // Update Store
+            audioState.update(s => ({
+                ...s,
+                volume: (nBass + nMid + nHigh) / 3,
+                bass: nBass,
+                mid: nMid,
+                high: nHigh,
+                beat: Math.max(0, s.beat * 0.92), // Decay beat value slightly slower
+                beatDetected: false
+            }));
+            
             // Dynamic variables
             phase += 0.05; 
-            
             const volume = 0.2 + (smoothBass * 0.5) + (smoothHigh * 1.5);
+            
+            // --- TRIGGER BEAT ---
+            // Algorithm: Is current Flux significantly higher than average Flux?
+            // This works for both quiet and loud sections because it's relative to recent activity.
+            
+            // Avoid noise in silence
+            if (currentFlux > 0.02) {
+                // Slider 0.0 - 1.0
+                // 0.0 -> Multiplier 1.1 (Very sensitive)
+                // 0.5 -> Multiplier 1.5
+                // 1.0 -> Multiplier 2.0 (Strict)
+                const sensitivity = params.lightningThreshold || 0.25;
+                const multiplier = 1.1 + (sensitivity * 0.9);
+                
+                // Trigger condition
+                if (currentFlux > smoothFlux * multiplier && (now - lastBeatTime > 150)) {
+                    lastBeatTime = now;
+                    
+                    // Update Store with Beat
+                    audioState.update(s => ({
+                        ...s,
+                        beat: 1.0,
+                        beatDetected: true
+                    }));
+                }
+            }
+            
+            // Draw Visualizer
             const width = 100;
             const points = 64;
             // Generate Mirrored Waveform Path (Filled)
@@ -464,7 +563,7 @@
     const groups: Group[] = [
         {
             title: "Performance",
-            icon: Zap,
+            icon: Gauge,
             items: [
                 { key: 'pixelRatioCap', label: 'Max Pixel Ratio', min: 0.5, max: 3.0, step: 0.05, type: 'slider' },
                 { key: 'renderScale', label: 'Render Scale', min: 0.1, max: 1.0, step: 0.01, type: 'slider' },
@@ -509,14 +608,23 @@
                 { key: 'noiseScaleDet', label: 'Detail', min: 0.1, max: 2.0, step: 0.01, type: 'slider' },
                 { key: 'cloudDensity', label: 'Density', min: 0, max: 10.0, step: 0.01, type: 'slider' },
                 { key: 'drawDist', label: 'Dist', min: 10, max: 200, step: 0.1, type: 'slider' },
-                // Lightning
-                { key: 'lightningEnabled', label: 'Lightning', type: 'checkbox' },
-                { key: 'lightningChance', label: 'Flash Freq', min: 0.0, max: 1.0, step: 0.01, type: 'slider' },
-                { key: 'lightningIntensity', label: 'Intensity', min: 0.0, max: 5.0, step: 0.1, type: 'slider' },
                 // Colors
                 { key: 'cloudBaseCol', label: 'Base', type: 'color' },
                 { key: 'cloudShadowCol', label: 'Shadow', type: 'color' },
-                { key: 'lightningColor', label: 'Lightning', type: 'color' },
+            ]
+        },
+        {
+            title: "Lightning",
+            icon: Zap,
+            items: [
+                // Lightning
+                { key: 'lightningEnabled', label: 'Enabled', type: 'checkbox' },
+                { key: 'lightningChance', label: 'Flash Freq', min: 0.0, max: 1.0, step: 0.01, type: 'slider' },
+                { key: 'lightningIntensity', label: 'Intensity', min: 0.0, max: 5.0, step: 0.1, type: 'slider' },
+                { key: 'lightningAudioSync', label: 'Audio Sync', type: 'checkbox' },
+                { key: 'lightningThreshold', label: 'Threshold', min: 0.0, max: 1.0, step: 0.01, type: 'slider' },
+                // Colors
+                { key: 'lightningColor', label: 'Color', type: 'color' },
             ]
         },
         {
@@ -631,7 +739,7 @@
                         <div class="flex flex-col gap-4 mt-1">
                             <!-- Sliders & Checkboxes -->
                             {#each group.items.filter(i => i.type === 'slider' || i.type === 'checkbox') as item}
-                                {#if (item.key !== 'lightningChance' && item.key !== 'lightningIntensity') || params.lightningEnabled}
+                                {#if group.title !== 'Lightning' || (item.key === 'lightningEnabled' || params.lightningEnabled)}
                                     <div class="group/slider flex flex-col gap-1.5 relative">
                                         <div class={cn(
                                             "flex justify-between items-end text-[10px] font-bold tracking-wide transition-colors",
@@ -699,7 +807,7 @@
                             {#if group.items.filter(i => i.type === 'color').length > 0}
                                 <div class="grid grid-cols-3 gap-2 mt-2">
                                     {#each group.items.filter(i => i.type === 'color') as color}
-                                        {#if color.key !== 'lightningColor' || params.lightningEnabled}
+                                        {#if group.title !== 'Lightning' || params.lightningEnabled}
                                             <div class="flex flex-col items-center gap-1.5">
                                                 <div class={cn(
                                                     "w-7 h-7 rounded-full overflow-hidden ring-1 hover:scale-110 transition-all cursor-pointer shadow-sm relative",

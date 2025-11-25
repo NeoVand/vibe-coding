@@ -39,6 +39,8 @@ export type ShaderParams = {
     lightningChance: number;
     lightningColor: string;
     lightningIntensity: number;
+    lightningAudioSync: number; // 0 or 1
+    lightningThreshold: number; // 1.0 - 3.0 typically for ratio
     
     // Performance Tuning
     pixelRatioCap: number;    // Hard cap on devicePixelRatio (e.g. 1.0, 1.5, 2.0)
@@ -106,6 +108,8 @@ export const defaultParams: ShaderParams = {
     lightningChance: 0.5,     // How often it flashes
     lightningColor: '#FFFFFF', // Color of the lightning
     lightningIntensity: 1.0,  // Strength of the lightning
+    lightningAudioSync: 0,
+    lightningThreshold: 1.5, // Beat detection ratio threshold
 
     // Performance Defaults
     pixelRatioCap: 1.5,       // Good balance for Retina screens
