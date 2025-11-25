@@ -246,14 +246,17 @@
                // sample cloud
                vec3 pos = ro + t * rd;
                
-               // OPTIMIZATION: Check safe distance to wall before calculating heavy noise
-               // ... (existing optimization) ...
+               // OPTIMIZATION: Removed unsafe skipping logic that caused artifacts when TUNNEL_RADIUS > 1.7
+               // The previous logic assumed clouds never extended more than 1.5 units inward, which is false
+               // when CLOUD_DENSITY is high.
+               /*
                float centerDistApprox = length(pos.xy - path(pos.z).xy); 
                if (centerDistApprox < TUNNEL_RADIUS - 1.5) {
                     float distToCloud = (TUNNEL_RADIUS - 1.5) - centerDistApprox;
                     t += max(dt, distToCloud * 0.5); 
                     continue;
                }
+               */
 
                float den = map(pos, oct);
                
