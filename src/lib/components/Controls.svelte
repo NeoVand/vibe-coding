@@ -287,12 +287,16 @@
         audio.volume = 0; // Start silent
         
         // Attempt auto-play with fade in
+        // Note: Most browsers block autoplay with sound until user interaction.
+        // We try anyway, but handle failure gracefully.
         audio.play().then(() => {
              fadeVolume(1.0);
-             // Start visualizer immediately if autoplay works
              initAudioContext(); 
+             // If successful, ensure state reflects it
+             isMuted = false;
         }).catch(() => {
             // Autoplay blocked - set UI to muted state
+            console.log("Autoplay blocked by browser policy - User interaction required");
             isMuted = true;
         });
 
