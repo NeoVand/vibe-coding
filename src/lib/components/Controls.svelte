@@ -47,10 +47,11 @@
     }
 
     function handleMainMouseLeave() {
-        // Small delay to allow moving to satellites
+        if (isOpen) return; // Don't hide if open
+        // Use a longer timeout to allow bridging the gap
         hoverTimeout = setTimeout(() => {
             showPresets = false;
-        }, 100);
+        }, 300); // Increased from 100ms
     }
     
     function handleMobileClick(e: MouseEvent) {
@@ -539,6 +540,7 @@
         role="presentation"
     >
          <!-- Satellites -->
+         <!-- Use a keyed block to ensure Svelte tracks entrance/exit correctly when showPresets changes -->
          {#if showPresets && !isOpen}
             {#each PRESETS as preset, i}
                 {@const angle = Math.PI - (i * (Math.PI / 2) / (PRESETS.length - 1))}
@@ -549,8 +551,8 @@
                 <div 
                     class="absolute w-5 h-5 z-0 flex items-center justify-center"
                     style="transform: translate(calc(-50% + {x}px), calc(-50% + {y}px)); top: 50%; left: 50%;" 
-                    in:fly={{ x: x*0.5, y: y*0.5, duration: 300, delay: i * 50 }}
-                    out:scale={{ duration: 200 }}
+                    in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
+                    out:scale|global={{ duration: 200, delay: (PRESETS.length - 1 - i) * 50 }}
                 >
                     <button
                         onclick={() => applyPreset(preset)}
