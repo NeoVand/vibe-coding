@@ -1,8 +1,8 @@
 
 <script lang="ts">
-    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Cloud, Sun, Sunset, CloudLightning, Moon } from 'lucide-svelte';
+    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check } from 'lucide-svelte';
     import { PRESETS, type Preset } from '$lib/presets';
-	import type { ShaderParams } from '$lib/shaderParams';
+	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
 	import { slide, fly, scale } from 'svelte/transition';
     import { onMount } from 'svelte';
     import { cubicOut, elasticOut } from 'svelte/easing';
@@ -124,6 +124,75 @@
         if (activeGroup !== title) {
             activeGroup = title;
         }
+    }
+
+    function getGroupDefaults(group: Group) {
+        const preset = PRESETS.find(p => p.id === activePresetId) || PRESETS[0];
+        const defaults: Partial<ShaderParams> = {};
+        
+        // Fallback hierarchy: Active Preset -> Default Preset -> System Defaults
+        const defaultPreset = PRESETS.find(p => p.id === 'default') || PRESETS[0];
+        
+        for (const item of group.items) {
+            const key = item.key;
+            // Check if key exists in active preset
+            if (preset.params && key in preset.params) {
+                 defaults[key] = preset.params[key] as any;
+            } 
+            // If not, check default preset
+            else if (defaultPreset.params && key in defaultPreset.params) {
+                 defaults[key] = defaultPreset.params[key] as any;
+            }
+            // Finally check shaderParams defaults
+            else {
+                 defaults[key] = defaultParams[key] as any;
+            }
+        }
+        return defaults;
+    }
+
+    function isGroupDirty(group: Group) {
+        const defaults = getGroupDefaults(group);
+        for (const item of group.items) {
+            const key = item.key;
+            // Loose equality check for floats might be needed, but strict is probably fine for now
+            // given we are setting from defaults.
+            if (params[key] !== defaults[key]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function handleReset(group: Group) {
+        const defaults = getGroupDefaults(group);
+        Object.assign(params, defaults);
+    }
+
+    function handleDownload(group: Group) {
+        const data: Record<string, any> = {};
+        
+        // Add metadata header
+        data['preset'] = activePresetId;
+        data['group'] = group.title;
+
+        for (const item of group.items) {
+            data[item.key] = params[item.key];
+        }
+        
+        // Simple YAML-like format
+        const yamlLines = Object.entries(data).map(([k, v]) => `${k}: ${v}`);
+        const content = yamlLines.join('\n');
+        
+        const blob = new Blob([content], { type: 'text/yaml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${group.title.toLowerCase()}-${activePresetId}.yaml`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     function cn(...inputs: (string | undefined | null | false)[]) {
@@ -380,7 +449,7 @@
     type ControlItem = {
         key: keyof ShaderParams;
         label: string;
-        type: 'slider' | 'color';
+        type: 'slider' | 'color' | 'checkbox';
         min?: number;
         max?: number;
         step?: number;
@@ -397,33 +466,33 @@
             title: "Performance",
             icon: Zap,
             items: [
-                { key: 'pixelRatioCap', label: 'Max Pixel Ratio', min: 0.5, max: 3.0, step: 0.1, type: 'slider' },
-                { key: 'renderScale', label: 'Render Scale', min: 0.1, max: 1.0, step: 0.05, type: 'slider' },
-                { key: 'renderSteps', label: 'Max Steps', min: 50, max: 300, step: 10, type: 'slider' },
-                { key: 'useLod', label: 'Use LOD (1=On)', min: 0, max: 1, step: 1, type: 'slider' },
+                { key: 'pixelRatioCap', label: 'Max Pixel Ratio', min: 0.5, max: 3.0, step: 0.05, type: 'slider' },
+                { key: 'renderScale', label: 'Render Scale', min: 0.1, max: 1.0, step: 0.01, type: 'slider' },
+                { key: 'renderSteps', label: 'Max Steps', min: 50, max: 300, step: 1, type: 'slider' },
+                { key: 'useLod', label: 'Use LOD (1=On)', type: 'checkbox' },
             ]
         },
         {
             title: "Camera",
             icon: Video,
             items: [
-                { key: 'camSpeed', label: 'Speed', min: 0, max: 10, step: 0.1, type: 'slider' },
-                { key: 'camFov', label: 'FOV', min: 1.0, max: 3.0, step: 0.1, type: 'slider' },
-                { key: 'camRollAmp', label: 'Roll Amp', min: 0, max: 1.0, step: 0.05, type: 'slider' },
-                { key: 'camRollFreq', label: 'Roll Freq', min: 0, max: 1.0, step: 0.05, type: 'slider' },
-                { key: 'camLookAhead', label: 'Look', min: 0, max: 5.0, step: 0.1, type: 'slider' },
-                { key: 'sunPathOffset', label: 'Sun Off', min: 0, max: 50.0, step: 1.0, type: 'slider' },
+                { key: 'camSpeed', label: 'Speed', min: 0, max: 10, step: 0.01, type: 'slider' },
+                { key: 'camFov', label: 'FOV', min: 1.0, max: 3.0, step: 0.01, type: 'slider' },
+                { key: 'camRollAmp', label: 'Roll Amp', min: 0, max: 1.0, step: 0.01, type: 'slider' },
+                { key: 'camRollFreq', label: 'Roll Freq', min: 0, max: 1.0, step: 0.01, type: 'slider' },
+                { key: 'camLookAhead', label: 'Look', min: 0, max: 5.0, step: 0.01, type: 'slider' },
+                { key: 'sunPathOffset', label: 'Sun Off', min: 0, max: 50.0, step: 0.1, type: 'slider' },
             ]
         },
         {
             title: "Tunnel",
             icon: TunnelIcon,
             items: [
-                { key: 'tunnelRadius', label: 'Radius', min: 0.1, max: 5.0, step: 0.1, type: 'slider' },
-                { key: 'pathAmpX', label: 'Amp X', min: 0, max: 10.0, step: 0.1, type: 'slider' },
-                { key: 'pathFreqX', label: 'Freq X', min: 0, max: 2.0, step: 0.01, type: 'slider' },
-                { key: 'pathAmpY', label: 'Amp Y', min: 0, max: 10.0, step: 0.1, type: 'slider' },
-                { key: 'pathFreqY', label: 'Freq Y', min: 0, max: 2.0, step: 0.01, type: 'slider' },
+                { key: 'tunnelRadius', label: 'Radius', min: 0.1, max: 5.0, step: 0.01, type: 'slider' },
+                { key: 'pathAmpX', label: 'Amp X', min: 0, max: 10.0, step: 0.01, type: 'slider' },
+                { key: 'pathFreqX', label: 'Freq X', min: 0, max: 2.0, step: 0.001, type: 'slider' },
+                { key: 'pathAmpY', label: 'Amp Y', min: 0, max: 10.0, step: 0.01, type: 'slider' },
+                { key: 'pathFreqY', label: 'Freq Y', min: 0, max: 2.0, step: 0.001, type: 'slider' },
                 // Colors
                 { key: 'bgColor', label: 'Background', type: 'color' },
                 { key: 'lightColor1', label: 'Ambient', type: 'color' },
@@ -434,12 +503,12 @@
             title: "Clouds",
             icon: Cloud,
             items: [
-                { key: 'vortexSpeed', label: 'Vortex', min: -2.0, max: 2.0, step: 0.1, type: 'slider' },
-                { key: 'vortexTwist', label: 'Twist', min: -1.0, max: 1.0, step: 0.05, type: 'slider' },
-                { key: 'noiseScaleBase', label: 'Base', min: 0.1, max: 2.0, step: 0.1, type: 'slider' },
-                { key: 'noiseScaleDet', label: 'Detail', min: 0.1, max: 2.0, step: 0.1, type: 'slider' },
-                { key: 'cloudDensity', label: 'Density', min: 0, max: 10.0, step: 0.1, type: 'slider' },
-                { key: 'drawDist', label: 'Dist', min: 10, max: 200, step: 1, type: 'slider' },
+                { key: 'vortexSpeed', label: 'Vortex', min: -2.0, max: 2.0, step: 0.01, type: 'slider' },
+                { key: 'vortexTwist', label: 'Twist', min: -1.0, max: 1.0, step: 0.001, type: 'slider' },
+                { key: 'noiseScaleBase', label: 'Base', min: 0.1, max: 2.0, step: 0.01, type: 'slider' },
+                { key: 'noiseScaleDet', label: 'Detail', min: 0.1, max: 2.0, step: 0.01, type: 'slider' },
+                { key: 'cloudDensity', label: 'Density', min: 0, max: 10.0, step: 0.01, type: 'slider' },
+                { key: 'drawDist', label: 'Dist', min: 10, max: 200, step: 0.1, type: 'slider' },
                 // Colors
                 { key: 'cloudBaseCol', label: 'Base', type: 'color' },
                 { key: 'cloudShadowCol', label: 'Shadow', type: 'color' },
@@ -449,9 +518,9 @@
             title: "Sun",
             icon: Sun,
             items: [
-                { key: 'sunGlowPow', label: 'Glow', min: 1, max: 200, step: 1, type: 'slider' },
-                { key: 'sunCorePow', label: 'Core', min: 1, max: 200, step: 1, type: 'slider' },
-                { key: 'sunGlarePow', label: 'Glare', min: 1, max: 50, step: 1, type: 'slider' },
+                { key: 'sunGlowPow', label: 'Glow', min: 1, max: 200, step: 0.1, type: 'slider' },
+                { key: 'sunCorePow', label: 'Core', min: 1, max: 200, step: 0.1, type: 'slider' },
+                { key: 'sunGlarePow', label: 'Glare', min: 1, max: 50, step: 0.1, type: 'slider' },
                 // Colors
                 { key: 'sunGlowCol', label: 'Glow', type: 'color' },
                 { key: 'sunCoreCol', label: 'Core', type: 'color' },
@@ -515,36 +584,107 @@
                             {group.title}
                         </span>
                     </div>
+
+                    {#if activeGroup === group.title && isGroupDirty(group)}
+                        <div transition:fly={{ x: 10, duration: 200 }} class="flex items-center gap-2">
+                            <div 
+                                role="button"
+                                tabindex="0"
+                                onclick={(e) => { e.stopPropagation(); handleReset(group); }}
+                                onkeydown={(e) => { if(e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleReset(group); }}} 
+                                class={cn(
+                                    "p-1.5 rounded-full transition-all duration-200 hover:scale-110", 
+                                    isDarkScene 
+                                        ? "text-white/30 hover:text-white hover:bg-white/10" 
+                                        : "text-black/30 hover:text-black hover:bg-black/5"
+                                )}
+                                title="Reset to defaults"
+                            >
+                                <RotateCcw size={11} />
+                            </div>
+                            <div 
+                                role="button"
+                                tabindex="0"
+                                onclick={(e) => { e.stopPropagation(); handleDownload(group); }}
+                                onkeydown={(e) => { if(e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleDownload(group); }}}
+                                class={cn(
+                                    "p-1.5 rounded-full transition-all duration-200 hover:scale-110", 
+                                    isDarkScene 
+                                        ? "text-white/30 hover:text-white hover:bg-white/10" 
+                                        : "text-black/30 hover:text-black hover:bg-black/5"
+                                )}
+                                title="Save config"
+                            >
+                                <Download size={11} />
+                            </div>
+                        </div>
+                    {/if}
                 </button>
                 
                 {#if activeGroup === group.title}
-                    <div transition:slide={{ duration: 300, easing: cubicOut }} class={cn("px-4 pb-5 pt-1", isDarkScene ? "bg-black/20" : "bg-white/20")}>
-                        <div class="flex flex-col gap-4">
-                            <!-- Sliders -->
-                            {#each group.items.filter(i => i.type === 'slider') as item}
+                    <div transition:slide={{ duration: 300, easing: cubicOut }} class={cn("px-4 pb-5 pt-1 relative", isDarkScene ? "bg-black/20" : "bg-white/20")}>
+                        <div class="flex flex-col gap-4 mt-1">
+                            <!-- Sliders & Checkboxes -->
+                            {#each group.items.filter(i => i.type === 'slider' || i.type === 'checkbox') as item}
                                 <div class="group/slider flex flex-col gap-1.5 relative">
                                     <div class={cn(
                                         "flex justify-between items-end text-[10px] font-bold tracking-wide transition-colors",
                                         isDarkScene ? "text-white/70 group-hover/slider:text-white" : "text-black/60 group-hover/slider:text-black"
                                     )}>
                                         <label for={item.key}>{item.label}</label>
-                                        <span class={cn(
-                                            "font-mono text-[9px] opacity-60 px-1 rounded",
-                                            isDarkScene ? "bg-white/10" : "bg-black/5"
-                                        )}>{params[item.key]}</span>
+                                        {#if item.type === 'slider'}
+                                            <span class={cn(
+                                                "font-mono text-[9px] opacity-60 px-1 rounded",
+                                                isDarkScene ? "bg-white/10" : "bg-black/5"
+                                            )}>
+                                                {typeof params[item.key] === 'number' 
+                                                    ? (params[item.key] as number).toFixed(item.step && item.step < 0.1 ? 3 : (item.step && item.step < 1 ? 2 : 0))
+                                                    : params[item.key]}
+                                            </span>
+                                        {/if}
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        id={item.key} 
-                                        min={item.min} 
-                                        max={item.max} 
-                                        step={item.step}
-                                        bind:value={params[item.key] as number}
-                                        class={cn(
-                                            "slider-input w-full h-0.5 rounded-full cursor-pointer appearance-none transition-colors",
-                                            isDarkScene ? "bg-white/20 hover:bg-white/40" : "bg-black/10 hover:bg-black/30"
-                                        )}
-                                    />
+
+                                    {#if item.type === 'slider'}
+                                        <input 
+                                            type="range" 
+                                            id={item.key} 
+                                            min={item.min} 
+                                            max={item.max} 
+                                            step={item.step}
+                                            bind:value={params[item.key] as number}
+                                            class={cn(
+                                                "slider-input w-full h-0.5 rounded-full cursor-pointer appearance-none transition-colors",
+                                                isDarkScene ? "bg-white/20 hover:bg-white/40" : "bg-black/10 hover:bg-black/30"
+                                            )}
+                                        />
+                                    {:else if item.type === 'checkbox'}
+                                        <button
+                                            onclick={() => {
+                                                 // TS workaround: Force cast the key access
+                                                 (params as any)[item.key] = params[item.key] ? 0 : 1; 
+                                            }}
+                                            class={cn(
+                                                "w-full flex items-center gap-3 p-2 rounded-md transition-all duration-200 border",
+                                                isDarkScene 
+                                                    ? "bg-white/5 border-white/10 hover:bg-white/10" 
+                                                    : "bg-black/5 border-black/5 hover:bg-black/10",
+                                                params[item.key] ? (isDarkScene ? "bg-white/20 border-white/30" : "bg-black/10 border-black/20") : ""
+                                            )}
+                                        >
+                                            <div class={cn(
+                                                "w-4 h-4 rounded flex items-center justify-center transition-colors border",
+                                                isDarkScene ? "border-white/40" : "border-black/40",
+                                                params[item.key] ? (isDarkScene ? "bg-white text-black border-white" : "bg-black text-white border-black") : "bg-transparent"
+                                            )}>
+                                                 {#if params[item.key]}
+                                                    <Check size={10} strokeWidth={4} />
+                                                 {/if}
+                                            </div>
+                                            <span class={cn("text-xs opacity-80", isDarkScene ? "text-white" : "text-black")}>
+                                                {params[item.key] ? "Enabled" : "Disabled"}
+                                            </span>
+                                        </button>
+                                    {/if}
                                 </div>
                             {/each}
 
