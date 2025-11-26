@@ -3,7 +3,7 @@
     import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check, Gauge } from 'lucide-svelte';
     import { PRESETS, type Preset } from '$lib/presets';
 	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
-	import { slide, fly, scale } from 'svelte/transition';
+	import { slide, fly, scale, fade } from 'svelte/transition';
     import { onMount } from 'svelte';
     import { cubicOut, elasticOut } from 'svelte/easing';
     import { clsx } from 'clsx';
@@ -889,7 +889,7 @@
                     class="absolute w-5 h-5 z-0 flex items-center justify-center"
                     style="transform: translate(calc(-50% + {x}px), calc(-50% + {y}px)); top: 50%; left: 50%;" 
                     in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
-                    out:scale|global={{ duration: 200, delay: (PRESETS.length - 1 - i) * 50 }}
+                    out:fade|global={{ duration: 150, delay: (PRESETS.length - 1 - i) * 30 }}
                 >
                     <button
                         onclick={() => applyPreset(preset)}
