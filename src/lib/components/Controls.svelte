@@ -17,33 +17,15 @@
 	let isOpen = $state(false);
     let activeGroup = $state("Camera");
     let activePresetId = $state("default");
-    let showPresets = $state(false);
-    let presetsVisible = $state(false); // Controls CSS visibility/animation state
+    // Single state controls visibility - elements always in DOM, no insertion/removal
+    let presetsVisible = $state(false);
     let hoverTimeout: NodeJS.Timeout;
-    let presetsHideTimeout: NodeJS.Timeout;
-    
-    // iOS 17+ detection - these versions have a WebKit bug with staggered CSS animations
-    let isIOS17Plus = $state(false);
-    
-    onMount(() => {
-        // Detect iOS 17+ by checking user agent
-        const ua = navigator.userAgent;
-        const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        if (isIOS) {
-            // Extract iOS version - look for "OS X_Y" pattern
-            const match = ua.match(/OS (\d+)[_\.]/);
-            if (match) {
-                const majorVersion = parseInt(match[1], 10);
-                isIOS17Plus = majorVersion >= 17;
-            }
-        }
-    });
 
     function toggle() {
         // Desktop: toggle open/close
         // Mobile: Handled by click logic below
         isOpen = !isOpen;
-        if (isOpen) showPresets = false;
+        if (isOpen) presetsVisible = false;
     }
 
     function close() {
@@ -53,55 +35,21 @@
     function applyPreset(preset: Preset) {
         Object.assign(params, preset.params);
         activePresetId = preset.id;
-        // Keep presets open for a moment or close? 
-        // User said: "when the user clicks on them, we would automatically set the settings"
-        // Does not explicitly say close.
     }
     
     // Determine active icon
     let ActiveIcon = $derived(PRESETS.find(p => p.id === activePresetId)?.icon || PRESETS[0].icon);
 
-    /**
-     * Frame-Perfect Element Removal (Double RAF Pattern)
-     * iOS 17 WebKit has a bug where the animation end event fires BEFORE the final frame is painted.
-     * This causes a "ghost frame" where the element flashes visible before being removed.
-     * 
-     * Solution: Use two nested requestAnimationFrame calls to ensure we skip past the ghost frame.
-     * RAF 1: Schedules for the next frame start
-     * RAF 2: We're now in the next frame - the ghost frame has been painted and cleared
-     * 
-     * Reference: iOS 17 WebKit Rendering Anomalies analysis
-     */
-    function safeHidePresets(callback?: () => void) {
-        // First RAF: Schedule for the next available frame start
-        requestAnimationFrame(() => {
-            // Second RAF: We are now in the next frame
-            // The previous frame (where the animation ended) has been painted
-            requestAnimationFrame(() => {
-                // Safe to remove - the ghost frame has been bypassed
-                showPresets = false;
-                if (callback) callback();
-            });
-        });
-    }
-
     function handleMainMouseEnter() {
         if (isOpen || isTouch) return;
         clearTimeout(hoverTimeout);
-        clearTimeout(presetsHideTimeout);
-        showPresets = true;
         presetsVisible = true;
     }
 
     function handleMainMouseLeave() {
-        if (isOpen || isTouch) return; // Don't hide if open
-        // Use a longer timeout to allow bridging the gap
+        if (isOpen || isTouch) return;
         hoverTimeout = setTimeout(() => {
-            presetsVisible = false; // Start CSS fade out
-            // Use Double RAF pattern after animation duration to avoid iOS 17 flicker
-            presetsHideTimeout = setTimeout(() => {
-                safeHidePresets();
-            }, 250); // Animation duration (200ms) + small buffer
+            presetsVisible = false;
         }, 300);
     }
     
@@ -115,48 +63,26 @@
         isLongPress = false;
         longPressTimer = setTimeout(() => {
             isLongPress = true;
-            // Long Press: Open GUI, Hide Presets
-            
-            // Start CSS fade out
             presetsVisible = false;
             if (navigator.vibrate) navigator.vibrate(50);
-            
-            // Use Double RAF pattern to avoid iOS 17 flicker
-            clearTimeout(presetsHideTimeout);
-            presetsHideTimeout = setTimeout(() => {
-                safeHidePresets(() => {
-                    isOpen = true;
-                });
-            }, 250);
+            setTimeout(() => {
+                isOpen = true;
+            }, 200);
         }, 500);
     }
 
     function handleTouchEnd(e: TouchEvent) {
         clearTimeout(longPressTimer);
-        e.preventDefault(); // Prevent default click/mouse emulation
+        e.preventDefault();
         
         if (isLongPress) {
-            return; // Long press action handled in timer
+            return;
         }
         
-        // Short Tap Logic
         if (isOpen) {
-            // If GUI open, close it (Toggle behavior)
             toggle();
         } else {
-            // Toggle presets visibility
-            clearTimeout(presetsHideTimeout);
-            if (showPresets) {
-                // Closing: CSS fade out first, then use Double RAF to remove from DOM
-                presetsVisible = false;
-                presetsHideTimeout = setTimeout(() => {
-                    safeHidePresets();
-                }, 250);
-            } else {
-                // Opening: add to DOM and make visible
-                showPresets = true;
-                presetsVisible = true;
-            }
+            presetsVisible = !presetsVisible;
         }
     }
 
@@ -922,41 +848,28 @@
         onmouseleave={handleMainMouseLeave}
         role="presentation"
     >
-         <!-- Satellites -->
-        <!-- Elements stay in DOM, CSS handles show/hide animation -->
-         {#if showPresets && !isOpen}
+         <!-- Satellites - ALWAYS in DOM, visibility controlled by CSS only -->
+         <!-- No Svelte transitions - pure CSS handles all animation to avoid iOS 17 WebKit bugs -->
+         {#if !isOpen}
             {#each PRESETS as preset, i (preset.id)}
-                <!-- 
-                    Original Arc: 90 degrees (0 to PI/2)
-                    Previous Arc: 100 degrees (-5deg to 95deg)
-                    New Arc: 104 degrees (-7deg to 97deg)
-                    
-                    Math:
-                    Start Angle = PI + (7deg in radians)
-                    Total Sweep = 90deg + 14deg = 104deg
-                -->
                 {@const totalSweep = (Math.PI / 2) + (14 * Math.PI / 180)} 
                 {@const startAngle = Math.PI + (7 * Math.PI / 180)}
                 {@const angle = startAngle - (i * totalSweep / (PRESETS.length - 1))}
-                
                 {@const r = 42} 
                 {@const x = Math.cos(angle) * r}
                 {@const y = Math.sin(angle) * r}
-                <!-- iOS 17+ gets simple fade (no stagger) to avoid WebKit animation bug -->
-                <!-- Other platforms get beautiful staggered animation -->
                 <div 
                     class={cn(
                         "absolute w-5 h-5 z-0 flex items-center justify-center preset-satellite",
-                        presetsVisible ? "preset-visible" : (isIOS17Plus ? "preset-hidden-simple" : "preset-hidden")
+                        presetsVisible ? "preset-visible" : "preset-hidden"
                     )}
-                    style="--x: {x}px; --y: {y}px; --delay-in: {i * 60}ms; --delay-out: {(PRESETS.length - 1 - i) * 50}ms; top: 50%; left: 50%;"
-                    in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
-                    out:fade|global={{ duration: 0 }}
+                    style="--x: {x}px; --y: {y}px; --i: {i}; --total: {PRESETS.length}; top: 50%; left: 50%;"
                 >
                     <button
                         onclick={() => applyPreset(preset)}
+                        disabled={!presetsVisible}
                         class={cn(
-                            "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center transition-all duration-200 hover:scale-125",
+                            "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center hover:scale-125",
                             isDarkScene 
                                 ? "bg-white/10 border-white/20 text-white" 
                                 : "bg-white/20 border-white/40 text-black",
@@ -1031,36 +944,37 @@
         @apply relative;
     }
 
-    /* Preset satellite positioning and animation */
+    /* Preset satellite - PURE CSS animation, no DOM insertion/removal */
+    /* Elements always exist, visibility controlled entirely by CSS classes */
     .preset-satellite {
-        /* Use matrix transform for iOS 17 compatibility - avoids interpolation artifacts */
-        transform: matrix(1, 0, 0, 1, 0, 0) translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
-        -webkit-backface-visibility: hidden;
-        backface-visibility: hidden;
-        -webkit-transform-style: flat;
-        transform-style: flat;
-    }
-    
-    /* Visible state */
-    .preset-satellite.preset-visible {
-        opacity: 1;
-        transition: opacity 200ms ease-out;
-    }
-    
-    /* Exit animation - simple CSS transition (no keyframes) for iOS 17 compatibility */
-    /* Using transition instead of @keyframes avoids the compositor desync bug */
-    .preset-satellite.preset-hidden,
-    .preset-satellite.preset-hidden-simple {
+        /* Start at center (hidden position) */
+        transform: translate(-50%, -50%);
         opacity: 0;
-        transition: opacity 200ms ease-out;
-        transition-delay: var(--delay-out);
-        /* Ensure element doesn't capture pointer events while fading */
         pointer-events: none;
+        /* Smooth transition for both show and hide */
+        transition: 
+            transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+            opacity 0.2s ease-out;
+        /* Staggered delay using CSS custom property */
+        transition-delay: calc(var(--i) * 40ms);
     }
     
-    /* iOS 17 simple mode - no stagger delay */
-    .preset-satellite.preset-hidden-simple {
-        transition-delay: 0ms;
+    /* Visible state - fly out to final position */
+    .preset-satellite.preset-visible {
+        transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
+        opacity: 1;
+        pointer-events: auto;
+        /* Staggered entrance */
+        transition-delay: calc(var(--i) * 60ms);
+    }
+    
+    /* Hidden state - return to center */
+    .preset-satellite.preset-hidden {
+        transform: translate(-50%, -50%);
+        opacity: 0;
+        pointer-events: none;
+        /* Reverse stagger for exit (last one first) */
+        transition-delay: calc((var(--total) - 1 - var(--i)) * 40ms);
     }
 
     /* Slider Thumb - Adaptive logic handled by CSS vars could be cleaner, but here we use specific colors */
