@@ -886,15 +886,15 @@
                 {@const y = Math.sin(angle) * r}
                 <!-- Wrapper div for positioning so hover scaling doesn't affect layout flow or cause jitter -->
                 <div 
-                    class="absolute w-5 h-5 z-0 flex items-center justify-center"
-                    style="transform: translate(calc(-50% + {x}px), calc(-50% + {y}px)); top: 50%; left: 50%;" 
-                    in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
-                    out:fly|global={{ x: -x, y: -y, duration: 300, delay: (PRESETS.length - 1 - i) * 50, easing: cubicOut }}
+                    class="absolute w-5 h-5 z-0 flex items-center justify-center pointer-events-none"
+                    style="top: 50%; left: 50%; transform: translate(-50%, -50%) translate({x}px, {y}px);" 
+                    in:fly={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
+                    out:fly={{ x: -x, y: -y, duration: 300, delay: (PRESETS.length - 1 - i) * 50, easing: cubicOut }}
                 >
                     <button
                         onclick={() => applyPreset(preset)}
                         class={cn(
-                            "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center transition-all duration-200 hover:scale-125",
+                            "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center transition-all duration-200 hover:scale-125 pointer-events-auto",
                             isDarkScene 
                                 ? "bg-white/10 border-white/20 text-white" 
                                 : "bg-white/20 border-white/40 text-black",
