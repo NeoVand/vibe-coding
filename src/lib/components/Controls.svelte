@@ -3,7 +3,7 @@
     import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check, Gauge } from 'lucide-svelte';
     import { PRESETS, type Preset } from '$lib/presets';
 	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
-	import { slide, fly, scale, fade } from 'svelte/transition';
+	import { slide, fly, scale } from 'svelte/transition';
     import { onMount } from 'svelte';
     import { cubicOut, elasticOut } from 'svelte/easing';
     import { clsx } from 'clsx';
@@ -443,14 +443,8 @@
         animationFrameId = requestAnimationFrame(updateVisualizer);
     }
 
-    // Track if we're currently in a fade operation to prevent rapid toggling
-    let isFading = $state(false);
-
     function toggleAudio() {
         if (!audio) return;
-        
-        // Prevent rapid toggling while fade is in progress
-        if (isFading) return;
         
         // Initialize Web Audio on first user interaction to bypass browser policies
         if (!audioContext) {
@@ -463,33 +457,25 @@
         
         if (isMuted) {
             // Unmute: Fade In
-            // Change icon IMMEDIATELY for instant feedback
             isMuted = false;
-            isFading = true;
             
             // Ensure gain is 0 before playing
             if (gainNode) gainNode.gain.value = 0;
             
             audio.play().catch(() => {
                 // If autoplay blocked, we just stay muted until user interacts again
-                isMuted = true;
-                isFading = false;
+                isMuted = true; 
             });
-            fadeVolume(1.0, () => {
-                isFading = false;
-            });
+            fadeVolume(1.0);
             updateVisualizer(); // Restart loop
         } else {
             // Mute: Fade Out
-            // Change icon IMMEDIATELY for instant feedback
-            isMuted = true;
-            isFading = true;
-            
+            // Defer isMuted = true until fade completes for better visual transition
             fadeVolume(0.0, () => {
+                isMuted = true;
                 audio.pause();
                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
                 visualizerPath = "M 0 50 L 100 50";
-                isFading = false;
             });
         }
     }
@@ -903,7 +889,7 @@
                     class="absolute w-5 h-5 z-0 flex items-center justify-center"
                     style="transform: translate(calc(-50% + {x}px), calc(-50% + {y}px)); top: 50%; left: 50%;" 
                     in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
-                    out:fade|global={{ duration: 150, delay: (PRESETS.length - 1 - i) * 40 }}
+                    out:scale|global={{ duration: 200, delay: (PRESETS.length - 1 - i) * 50 }}
                 >
                     <button
                         onclick={() => applyPreset(preset)}
