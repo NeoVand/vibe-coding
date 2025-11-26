@@ -18,7 +18,9 @@
     let activeGroup = $state("Camera");
     let activePresetId = $state("default");
     let showPresets = $state(false);
+    let audioButtonShifted = $state(false); // Separate state for audio button position to prevent animation conflicts
     let hoverTimeout: NodeJS.Timeout;
+    let audioShiftTimeout: NodeJS.Timeout;
 
     function toggle() {
         // Desktop: toggle open/close
@@ -45,7 +47,9 @@
     function handleMainMouseEnter() {
         if (isOpen || isTouch) return;
         clearTimeout(hoverTimeout);
+        clearTimeout(audioShiftTimeout);
         showPresets = true;
+        audioButtonShifted = true; // Move audio button down immediately when presets show
     }
 
     function handleMainMouseLeave() {
@@ -53,6 +57,11 @@
         // Use a longer timeout to allow bridging the gap
         hoverTimeout = setTimeout(() => {
             showPresets = false;
+            // Delay audio button movement until after exit animations complete
+            // Exit animation: 150ms duration + (PRESETS.length - 1) * 30ms delay = ~240ms total
+            audioShiftTimeout = setTimeout(() => {
+                audioButtonShifted = false;
+            }, 300);
         }, 300); // Increased from 100ms
     }
     
@@ -67,15 +76,19 @@
         longPressTimer = setTimeout(() => {
             isLongPress = true;
             // Long Press: Open GUI, Hide Presets
-            // showPresets = false; 
-            // isOpen = true;
             
             // Sequence the state changes:
             // 1. Start hiding presets immediately
             showPresets = false;
             if (navigator.vibrate) navigator.vibrate(50);
             
-            // 2. Open GUI after a short delay to prevent frame drops from interrupting the exit animation
+            // 2. Delay audio button shift until after exit animations
+            clearTimeout(audioShiftTimeout);
+            audioShiftTimeout = setTimeout(() => {
+                audioButtonShifted = false;
+            }, 300);
+            
+            // 3. Open GUI after a short delay to prevent frame drops from interrupting the exit animation
             requestAnimationFrame(() => {
                 setTimeout(() => {
                     isOpen = true;
@@ -98,7 +111,18 @@
             toggle();
         } else {
             // Toggle presets visibility
-            showPresets = !showPresets;
+            clearTimeout(audioShiftTimeout);
+            if (showPresets) {
+                // Closing: delay audio button movement
+                showPresets = false;
+                audioShiftTimeout = setTimeout(() => {
+                    audioButtonShifted = false;
+                }, 300);
+            } else {
+                // Opening: move audio button immediately
+                showPresets = true;
+                audioButtonShifted = true;
+            }
         }
     }
 
@@ -942,7 +966,7 @@
              isDarkScene 
                 ? "bg-white/5 border-white/20 hover:bg-white/10"
                 : "bg-white/10 border-white/40 hover:bg-white/20",
-             showPresets && !isOpen ? "translate-y-7" : "" 
+             audioButtonShifted ? "translate-y-7" : "" 
         )}
         aria-label="Toggle Audio"
     >
