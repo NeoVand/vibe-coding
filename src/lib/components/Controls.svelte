@@ -443,8 +443,14 @@
         animationFrameId = requestAnimationFrame(updateVisualizer);
     }
 
+    // Track if we're currently in a fade operation to prevent rapid toggling
+    let isFading = $state(false);
+
     function toggleAudio() {
         if (!audio) return;
+        
+        // Prevent rapid toggling while fade is in progress
+        if (isFading) return;
         
         // Initialize Web Audio on first user interaction to bypass browser policies
         if (!audioContext) {
@@ -457,25 +463,33 @@
         
         if (isMuted) {
             // Unmute: Fade In
+            // Change icon IMMEDIATELY for instant feedback
             isMuted = false;
+            isFading = true;
             
             // Ensure gain is 0 before playing
             if (gainNode) gainNode.gain.value = 0;
             
             audio.play().catch(() => {
                 // If autoplay blocked, we just stay muted until user interacts again
-                isMuted = true; 
+                isMuted = true;
+                isFading = false;
             });
-            fadeVolume(1.0);
+            fadeVolume(1.0, () => {
+                isFading = false;
+            });
             updateVisualizer(); // Restart loop
         } else {
             // Mute: Fade Out
-            // Defer isMuted = true until fade completes for better visual transition
+            // Change icon IMMEDIATELY for instant feedback
+            isMuted = true;
+            isFading = true;
+            
             fadeVolume(0.0, () => {
-                isMuted = true;
                 audio.pause();
                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
                 visualizerPath = "M 0 50 L 100 50";
+                isFading = false;
             });
         }
     }
