@@ -238,7 +238,19 @@
             // Calculate rotation angle
             // FIX: Use integrated phase + anchor twist to camera Z to prevent "helicoptering" when changing parameters
             float twistOffset = p.z - uCamZ; 
-            float angle = -uVortexPhase + twistOffset * VORTEX_TWIST;
+            
+            // Bounded depth-dependent vortex parallax
+            // Creates visual depth variation that breaks the "camera spinning" illusion
+            // by making clouds at different depths appear at slightly different rotation phases.
+            // 
+            // Key insight: We use sin(phase) to create an OSCILLATING offset, not accumulating.
+            // This means far clouds "lead" and "lag" the rotation in a bounded cycle,
+            // creating the perception of depth variation without the spiral-sink effect.
+            // The effect scales with depth (twistOffset) and is more pronounced when vortex is active.
+            const float DEPTH_PARALLAX_STRENGTH = 0.015;
+            float depthParallax = sin(uVortexPhase) * twistOffset * DEPTH_PARALLAX_STRENGTH;
+            
+            float angle = -uVortexPhase + depthParallax + twistOffset * VORTEX_TWIST;
             
             float s = sin(angle);
             float c = cos(angle);
