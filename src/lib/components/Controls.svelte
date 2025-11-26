@@ -959,12 +959,12 @@
         transform: translate(-50%, -50%);
         opacity: 0;
         pointer-events: none;
-        /* Smooth transition for both show and hide */
+        /* Smooth transition for both show and hide - slower, more elegant */
         transition: 
-            transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-            opacity 0.2s ease-out;
+            transform 0.5s cubic-bezier(0.34, 1.3, 0.64, 1),
+            opacity 0.4s ease-out;
         /* Staggered delay using CSS custom property */
-        transition-delay: calc(var(--i) * 40ms);
+        transition-delay: calc(var(--i) * 70ms);
     }
     
     /* Visible state - fly out to final position */
@@ -972,8 +972,8 @@
         transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
         opacity: 1;
         pointer-events: auto;
-        /* Staggered entrance */
-        transition-delay: calc(var(--i) * 60ms);
+        /* Staggered entrance - slower cascade */
+        transition-delay: calc(var(--i) * 100ms);
     }
     
     /* Hidden state - return to center */
@@ -981,8 +981,8 @@
         transform: translate(-50%, -50%);
         opacity: 0;
         pointer-events: none;
-        /* Reverse stagger for exit (last one first) */
-        transition-delay: calc((var(--total) - 1 - var(--i)) * 40ms);
+        /* Reverse stagger for exit (last one first) - gentler retreat */
+        transition-delay: calc((var(--total) - 1 - var(--i)) * 80ms);
     }
 
     /* Slider Thumb - Adaptive logic handled by CSS vars could be cleaner, but here we use specific colors */
