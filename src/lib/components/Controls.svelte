@@ -901,6 +901,8 @@
                 {@const x = Math.cos(angle) * r}
                 {@const y = Math.sin(angle) * r}
                 <!-- CSS animation with staggered delays via custom properties -->
+                <!-- IMPORTANT: Using 'in:' only (not 'transition:') and explicit 'out:fade' with 0 duration 
+                     to prevent Svelte from playing the fly animation in reverse on exit -->
                 <div 
                     class={cn(
                         "absolute w-5 h-5 z-0 flex items-center justify-center preset-satellite",
@@ -908,6 +910,7 @@
                     )}
                     style="--x: {x}px; --y: {y}px; --delay-in: {i * 60}ms; --delay-out: {(PRESETS.length - 1 - i) * 50}ms; top: 50%; left: 50%;"
                     in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
+                    out:fade|global={{ duration: 0 }}
                 >
                     <button
                         onclick={() => applyPreset(preset)}
