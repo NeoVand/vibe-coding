@@ -61,6 +61,30 @@
     // Determine active icon
     let ActiveIcon = $derived(PRESETS.find(p => p.id === activePresetId)?.icon || PRESETS[0].icon);
 
+    /**
+     * Frame-Perfect Element Removal (Double RAF Pattern)
+     * iOS 17 WebKit has a bug where the animation end event fires BEFORE the final frame is painted.
+     * This causes a "ghost frame" where the element flashes visible before being removed.
+     * 
+     * Solution: Use two nested requestAnimationFrame calls to ensure we skip past the ghost frame.
+     * RAF 1: Schedules for the next frame start
+     * RAF 2: We're now in the next frame - the ghost frame has been painted and cleared
+     * 
+     * Reference: iOS 17 WebKit Rendering Anomalies analysis
+     */
+    function safeHidePresets(callback?: () => void) {
+        // First RAF: Schedule for the next available frame start
+        requestAnimationFrame(() => {
+            // Second RAF: We are now in the next frame
+            // The previous frame (where the animation ended) has been painted
+            requestAnimationFrame(() => {
+                // Safe to remove - the ghost frame has been bypassed
+                showPresets = false;
+                if (callback) callback();
+            });
+        });
+    }
+
     function handleMainMouseEnter() {
         if (isOpen || isTouch) return;
         clearTimeout(hoverTimeout);
@@ -74,10 +98,10 @@
         // Use a longer timeout to allow bridging the gap
         hoverTimeout = setTimeout(() => {
             presetsVisible = false; // Start CSS fade out
-            // Remove from DOM after animation completes
+            // Use Double RAF pattern after animation duration to avoid iOS 17 flicker
             presetsHideTimeout = setTimeout(() => {
-                showPresets = false;
-            }, 400); // Wait for CSS animation to complete
+                safeHidePresets();
+            }, 250); // Animation duration (200ms) + small buffer
         }, 300);
     }
     
@@ -97,12 +121,13 @@
             presetsVisible = false;
             if (navigator.vibrate) navigator.vibrate(50);
             
-            // Remove from DOM after animation, then open GUI
+            // Use Double RAF pattern to avoid iOS 17 flicker
             clearTimeout(presetsHideTimeout);
             presetsHideTimeout = setTimeout(() => {
-                showPresets = false;
-                isOpen = true;
-            }, 400);
+                safeHidePresets(() => {
+                    isOpen = true;
+                });
+            }, 250);
         }, 500);
     }
 
@@ -122,11 +147,11 @@
             // Toggle presets visibility
             clearTimeout(presetsHideTimeout);
             if (showPresets) {
-                // Closing: CSS fade out first, then remove from DOM
+                // Closing: CSS fade out first, then use Double RAF to remove from DOM
                 presetsVisible = false;
                 presetsHideTimeout = setTimeout(() => {
-                    showPresets = false;
-                }, 400);
+                    safeHidePresets();
+                }, 250);
             } else {
                 // Opening: add to DOM and make visible
                 showPresets = true;
@@ -1008,44 +1033,34 @@
 
     /* Preset satellite positioning and animation */
     .preset-satellite {
-        transform: translate3d(calc(-50% + var(--x)), calc(-50% + var(--y)), 0);
+        /* Use matrix transform for iOS 17 compatibility - avoids interpolation artifacts */
+        transform: matrix(1, 0, 0, 1, 0, 0) translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
         -webkit-backface-visibility: hidden;
         backface-visibility: hidden;
         -webkit-transform-style: flat;
         transform-style: flat;
-        /* iOS 17 flicker fix - force compositing layer */
-        -webkit-perspective: 1000;
-        perspective: 1000;
-        will-change: opacity, transform;
     }
     
-    /* Ensure visible state has full opacity */
+    /* Visible state */
     .preset-satellite.preset-visible {
         opacity: 1;
+        transition: opacity 200ms ease-out;
     }
     
-    /* Exit animation - staggered fade for non-iOS 17 devices */
-    .preset-satellite.preset-hidden {
-        animation: preset-fade-out 200ms ease-out forwards;
-        animation-delay: var(--delay-out);
-        -webkit-backface-visibility: hidden;
-        backface-visibility: hidden;
-    }
-    
-    /* Simple exit animation for iOS 17+ - all fade at once, no stagger, no flicker */
+    /* Exit animation - simple CSS transition (no keyframes) for iOS 17 compatibility */
+    /* Using transition instead of @keyframes avoids the compositor desync bug */
+    .preset-satellite.preset-hidden,
     .preset-satellite.preset-hidden-simple {
         opacity: 0;
-        transition: opacity 150ms ease-out;
+        transition: opacity 200ms ease-out;
+        transition-delay: var(--delay-out);
+        /* Ensure element doesn't capture pointer events while fading */
+        pointer-events: none;
     }
     
-    @keyframes preset-fade-out {
-        0% {
-            opacity: 1;
-        }
-        100% {
-            opacity: 0;
-            visibility: hidden;
-        }
+    /* iOS 17 simple mode - no stagger delay */
+    .preset-satellite.preset-hidden-simple {
+        transition-delay: 0ms;
     }
 
     /* Slider Thumb - Adaptive logic handled by CSS vars could be cleaner, but here we use specific colors */
