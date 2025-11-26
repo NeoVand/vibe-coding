@@ -548,10 +548,11 @@
     type ControlItem = {
         key: keyof ShaderParams;
         label: string;
-        type: 'slider' | 'color' | 'checkbox';
+        type: 'slider' | 'color' | 'checkbox' | 'select';
         min?: number;
         max?: number;
         step?: number;
+        options?: { label: string, value: any }[];
     };
 
     type Group = {
@@ -602,6 +603,12 @@
             title: "Clouds",
             icon: Cloud,
             items: [
+                { key: 'noiseMethod', label: 'Pattern', type: 'select', options: [
+                    { label: 'Soft Clouds', value: 1 },
+                    { label: 'Billows', value: 2 },
+                    { label: 'Inky', value: 3 },
+                    { label: 'Liquid', value: 4 }
+                ]},
                 { key: 'vortexSpeed', label: 'Vortex', min: -2.0, max: 2.0, step: 0.01, type: 'slider' },
                 { key: 'vortexTwist', label: 'Twist', min: -1.0, max: 1.0, step: 0.001, type: 'slider' },
                 { key: 'noiseScaleBase', label: 'Base', min: 0.1, max: 2.0, step: 0.01, type: 'slider' },
@@ -737,8 +744,8 @@
                 {#if activeGroup === group.title}
                     <div transition:slide={{ duration: 300, easing: cubicOut }} class={cn("px-4 pb-5 pt-1 relative", isDarkScene ? "bg-black/20" : "bg-white/20")}>
                         <div class="flex flex-col gap-4 mt-1">
-                            <!-- Sliders & Checkboxes -->
-                            {#each group.items.filter(i => i.type === 'slider' || i.type === 'checkbox') as item}
+                            <!-- Sliders, Checkboxes & Selects -->
+                            {#each group.items.filter(i => i.type === 'slider' || i.type === 'checkbox' || i.type === 'select') as item}
                                 {#if group.title !== 'Lightning' || (item.key === 'lightningEnabled' || params.lightningEnabled)}
                                     <div class="group/slider flex flex-col gap-1.5 relative">
                                         <div class={cn(
@@ -798,6 +805,31 @@
                                                     {params[item.key] ? "Enabled" : "Disabled"}
                                                 </span>
                                             </button>
+                                        {:else if item.type === 'select'}
+                                            <div class="relative">
+                                                <select
+                                                    id={item.key}
+                                                    bind:value={params[item.key]}
+                                                    class={cn(
+                                                        "w-full p-1.5 text-[10px] rounded border appearance-none cursor-pointer transition-colors outline-none font-mono",
+                                                        isDarkScene 
+                                                            ? "bg-white/5 border-white/10 text-white hover:bg-white/10 focus:border-white/30" 
+                                                            : "bg-black/5 border-black/5 text-black hover:bg-black/10 focus:border-black/20"
+                                                    )}
+                                                >
+                                                    {#each item.options || [] as option}
+                                                        <option value={option.value} class="text-black bg-white">{option.label}</option>
+                                                    {/each}
+                                                </select>
+                                                <div class={cn(
+                                                    "absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none",
+                                                    isDarkScene ? "text-white/50" : "text-black/50"
+                                                )}>
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="m6 9 6 6 6-6"/>
+                                                    </svg>
+                                                </div>
+                                            </div>
                                         {/if}
                                     </div>
                                 {/if}
