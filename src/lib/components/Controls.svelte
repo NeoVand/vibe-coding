@@ -222,6 +222,7 @@
     // Web Audio API context
     let audioContext: AudioContext | null = null;
     let analyser: AnalyserNode | null = null;
+    let gainNode: GainNode | null = null;
     let sourceNode: MediaElementAudioSourceNode | null = null;
     let animationFrameId: number;
     
@@ -247,9 +248,12 @@
         // Use 0 to get raw data instantly, we handle smoothing manually for better control
         analyser.smoothingTimeConstant = 0; 
 
+        gainNode = audioContext.createGain();
+
         if (audio) {
             sourceNode = audioContext.createMediaElementSource(audio);
-            sourceNode.connect(analyser);
+            sourceNode.connect(gainNode);
+            gainNode.connect(analyser);
             analyser.connect(audioContext.destination);
         }
         
@@ -454,6 +458,10 @@
         if (isMuted) {
             // Unmute: Fade In
             isMuted = false;
+            
+            // Ensure gain is 0 before playing
+            if (gainNode) gainNode.gain.value = 0;
+            
             audio.play().catch(() => {
                 // If autoplay blocked, we just stay muted until user interacts again
                 isMuted = true; 
@@ -462,8 +470,9 @@
             updateVisualizer(); // Restart loop
         } else {
             // Mute: Fade Out
-            isMuted = true;
+            // Defer isMuted = true until fade completes for better visual transition
             fadeVolume(0.0, () => {
+                isMuted = true;
                 audio.pause();
                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
                 visualizerPath = "M 0 50 L 100 50";
@@ -476,7 +485,8 @@
     function fadeVolume(target: number, onComplete?: () => void) {
         if (fadeInterval) clearInterval(fadeInterval);
         
-        const start = audio.volume;
+        // Use gainNode if available (required for iOS), fallback to audio.volume
+        const start = gainNode ? gainNode.gain.value : audio.volume;
         const diff = target - start;
         const duration = 1000; // 1 second fade
         const stepTime = 50;
@@ -488,13 +498,19 @@
         fadeInterval = setInterval(() => {
             currentStep++;
             const newVolume = start + (stepValue * currentStep);
+            const clampedVolume = Math.max(0, Math.min(1, newVolume));
             
-            // Clamp to valid range
-            audio.volume = Math.max(0, Math.min(1, newVolume));
+            if (gainNode) {
+                gainNode.gain.value = clampedVolume;
+            } else {
+                audio.volume = clampedVolume;
+            }
             
             if (currentStep >= steps) {
                 clearInterval(fadeInterval);
-                audio.volume = target;
+                if (gainNode) gainNode.gain.value = target;
+                else audio.volume = target;
+                
                 if (onComplete) onComplete();
             }
         }, stepTime);
@@ -873,7 +889,7 @@
                     class="absolute w-5 h-5 z-0 flex items-center justify-center"
                     style="transform: translate(calc(-50% + {x}px), calc(-50% + {y}px)); top: 50%; left: 50%;" 
                     in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
-                    out:scale|global={{ duration: 200, delay: (PRESETS.length - 1 - i) * 50 }}
+                    out:fly|global={{ x: -x, y: -y, duration: 300, delay: (PRESETS.length - 1 - i) * 50, easing: cubicOut }}
                 >
                     <button
                         onclick={() => applyPreset(preset)}

@@ -577,8 +577,8 @@
             const width = container.clientWidth;
             const height = container.clientHeight;
             
-            // Check orientation for mobile optimization
-            isPortrait = height > width;
+            // Check orientation for mobile optimization (No longer needed for state, but useful for debug if needed)
+            // isPortrait = height > width;
             
             // Dynamic Resolution Scaling
             // 1. Cap the pixel ratio (e.g., stop at 1.5x even on 3x screens)
@@ -621,12 +621,34 @@
                 // Speed 1.5 -> ~2.5% per frame (60fps) -> Slow/Graceful
                 const lerpFactor = 1.0 - Math.exp(-dt * 0.5); 
 
-                // --- SMOOTH PARAMETER INTERPOLATION ---
-                material.uniforms.CAM_SPEED.value += (params.camSpeed - material.uniforms.CAM_SPEED.value) * lerpFactor;
+                // --- ADAPTIVE ASPECT RATIO LOGIC ---
+                // Calculate current aspect ratio (Width / Height)
+                // Use container dimensions if possible, or internal resolution (though 'container' is safest for layout sync)
+                const aspect = container.clientWidth / container.clientHeight;
+
+                // 1. Adaptive FOV (Focal Length)
+                // We want to widen the angle (decrease FOV value) as the aspect ratio decreases (gets narrower).
+                // Formula: Smoothly transition from full FOV at >1.0 aspect to reduced FOV at <0.5 aspect.
+                // Use a saturation curve: min(1.0, k * aspect)
+                // At aspect 1.0 (square) -> Multiplier 1.0
+                // At aspect 0.5 (phone)  -> Multiplier 0.7 (Widened view)
+                // Base Formula: 0.4 + 0.6 * aspect (Clamped to 1.0)
+                const fovAdjustment = Math.min(1.0, 0.4 + 0.6 * aspect);
+                const targetFov = params.camFov * fovAdjustment;
                 
-                // Apply FOV multiplier for mobile/portrait to keep animation in frame
-                const targetFov = params.camFov * (isPortrait ? 1.2 : 1.0);
                 material.uniforms.CAM_FOV.value += (targetFov - material.uniforms.CAM_FOV.value) * lerpFactor;
+                
+                // 2. Adaptive Path Amplitude (X-Axis)
+                // Reduce lateral swing on narrow screens so the camera doesn't look at walls.
+                // Formula: min(1.0, aspect) - straight linear reduction.
+                // At aspect 0.5 -> 50% amplitude.
+                // At aspect 1.0 -> 100% amplitude.
+                const ampAdjustment = Math.min(1.0, aspect);
+                
+                const targetAmpX = params.pathAmpX * ampAdjustment;
+                material.uniforms.PATH_AMP_X.value += (targetAmpX - material.uniforms.PATH_AMP_X.value) * lerpFactor;
+
+                material.uniforms.CAM_SPEED.value += (params.camSpeed - material.uniforms.CAM_SPEED.value) * lerpFactor;
                 
                 material.uniforms.CAM_ROLL_AMP.value += (params.camRollAmp - material.uniforms.CAM_ROLL_AMP.value) * lerpFactor;
                 material.uniforms.CAM_ROLL_FREQ.value += (params.camRollFreq - material.uniforms.CAM_ROLL_FREQ.value) * lerpFactor;
@@ -634,7 +656,8 @@
                 material.uniforms.SUN_PATH_OFFSET.value += (params.sunPathOffset - material.uniforms.SUN_PATH_OFFSET.value) * lerpFactor;
                 
                 material.uniforms.TUNNEL_RADIUS.value += (params.tunnelRadius - material.uniforms.TUNNEL_RADIUS.value) * lerpFactor;
-                material.uniforms.PATH_AMP_X.value += (params.pathAmpX - material.uniforms.PATH_AMP_X.value) * lerpFactor;
+                // Use Adaptive X Amp
+                // material.uniforms.PATH_AMP_X.value set above
                 material.uniforms.PATH_FREQ_X.value += (params.pathFreqX - material.uniforms.PATH_FREQ_X.value) * lerpFactor;
                 material.uniforms.PATH_AMP_Y.value += (params.pathAmpY - material.uniforms.PATH_AMP_Y.value) * lerpFactor;
                 material.uniforms.PATH_FREQ_Y.value += (params.pathFreqY - material.uniforms.PATH_FREQ_Y.value) * lerpFactor;
