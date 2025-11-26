@@ -885,9 +885,10 @@
                 {@const x = Math.cos(angle) * r}
                 {@const y = Math.sin(angle) * r}
                 <!-- Wrapper div for positioning so hover scaling doesn't affect layout flow or cause jitter -->
+                <!-- GPU acceleration hints: translate3d and backface-visibility prevent mobile flickering -->
                 <div 
                     class="absolute w-5 h-5 z-0 flex items-center justify-center"
-                    style="transform: translate(calc(-50% + {x}px), calc(-50% + {y}px)); top: 50%; left: 50%;" 
+                    style="transform: translate3d(calc(-50% + {x}px), calc(-50% + {y}px), 0); top: 50%; left: 50%; -webkit-backface-visibility: hidden; backface-visibility: hidden; will-change: opacity;" 
                     in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
                     out:fade|global={{ duration: 150, delay: (PRESETS.length - 1 - i) * 30 }}
                 >
