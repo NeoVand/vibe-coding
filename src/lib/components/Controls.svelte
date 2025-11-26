@@ -914,6 +914,7 @@
                 >
                     <button
                         onclick={() => applyPreset(preset)}
+                        style="-webkit-backface-visibility: hidden; -webkit-transform: translate3d(0,0,0);"
                         class={cn(
                             "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center transition-all duration-200 hover:scale-125",
                             isDarkScene 
@@ -992,23 +993,38 @@
 
     /* Preset satellite positioning and animation */
     .preset-satellite {
-        transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
+        transform: translate3d(calc(-50% + var(--x)), calc(-50% + var(--y)), 0);
         -webkit-backface-visibility: hidden;
         backface-visibility: hidden;
+        -webkit-transform-style: flat;
+        transform-style: flat;
+        /* iOS 17 flicker fix - force compositing layer */
+        -webkit-perspective: 1000;
+        perspective: 1000;
+        will-change: opacity, transform;
+    }
+    
+    /* Ensure visible state has full opacity */
+    .preset-satellite.preset-visible {
+        opacity: 1;
     }
     
     /* Exit animation - CSS controlled for reliability on mobile */
     .preset-satellite.preset-hidden {
         animation: preset-fade-out 200ms ease-out forwards;
         animation-delay: var(--delay-out);
+        /* Keep compositing hints during animation */
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
     }
     
     @keyframes preset-fade-out {
-        from {
+        0% {
             opacity: 1;
         }
-        to {
+        100% {
             opacity: 0;
+            visibility: hidden;
         }
     }
 
