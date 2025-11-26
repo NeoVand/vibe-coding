@@ -91,16 +91,16 @@
     }
     
     function handleClick(e: MouseEvent) {
-        // If we just had a touch event, ignore this click (double safety, though preventDefault handles it)
+        // If we just had a touch event, ignore this click
         if (isTouch) {
-             // Reset touch flag after a delay to allow mouse usage again if hybrid device?
-             // For now, just return.
-             // Actually, preventDefault in touchend stops this from firing usually.
-             return;
+            return;
         }
 
-        if (!isOpen && !showPresets) {
-            showPresets = true;
+        // Desktop behavior:
+        // First click: show presets
+        // Second click: open GUI (toggle)
+        if (!isOpen && !presetsVisible) {
+            presetsVisible = true;
             return;
         }
         toggle();
@@ -900,10 +900,18 @@
             {#if isOpen}
                  <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black/60")} />
             {:else}
-                 <div class="absolute transition-all duration-300 scale-100 opacity-100 group-hover:scale-0 group-hover:opacity-0 flex items-center justify-center">
+                 <!-- Icon swap controlled by presetsVisible state (not CSS hover) so it syncs with satellite animation -->
+                 <div class={cn(
+                    "absolute transition-all duration-300 flex items-center justify-center",
+                    presetsVisible ? "scale-0 opacity-0" : "scale-100 opacity-100"
+                 )}>
                     <ActiveIcon size={18} class={isDarkScene ? "text-white" : "text-black/60"} />
                  </div>
-                 <Settings size={18} class={cn("absolute transition-all duration-300 scale-0 opacity-0 rotate-[-90deg] group-hover:scale-100 group-hover:opacity-100 group-hover:rotate-0", isDarkScene ? "text-white" : "text-black/60")} />
+                 <Settings size={18} class={cn(
+                    "absolute transition-all duration-300",
+                    presetsVisible ? "scale-100 opacity-100 rotate-0" : "scale-0 opacity-0 rotate-[-90deg]",
+                    isDarkScene ? "text-white" : "text-black/60"
+                 )} />
             {/if}
         </button>
     </div>
