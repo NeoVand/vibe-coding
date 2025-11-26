@@ -14,6 +14,7 @@ export const PRESETS: Preset[] = [
         name: 'Dreamy',
         icon: Cloud,
         params: {
+            noiseMethod: 1, // Soft Clouds
             bgColor: '#c7e6ff',
             lightColor1: '#d1d6e0',
             lightColor2: '#FFF0F2',
@@ -51,6 +52,7 @@ export const PRESETS: Preset[] = [
         name: 'Sunset',
         icon: Haze,
         params: {
+            noiseMethod: 3, // Inky
             bgColor: '#DABCCA',
             lightColor1: '#ff9900',
             lightColor2: '#E7D4CB',
@@ -63,7 +65,10 @@ export const PRESETS: Preset[] = [
             sunCorePow: 36,
             sunGlarePow: 16,
             vortexSpeed: -0.6,
-            vortexTwist: 0.2,
+            vortexTwist: 0.034,
+            noiseScaleBase: 0.21,
+            noiseScaleDet: 1.27,
+            drawDist: 136.3,
             camSpeed: 3.31,
             camFov: 1.82,
             camRollAmp: 0.2,
@@ -84,6 +89,7 @@ export const PRESETS: Preset[] = [
         name: 'Storm',
         icon: CloudLightning,
         params: {
+            noiseMethod: 2, // Billows
             bgColor: '#05186B',
             lightColor1: '#B4BFCB',
             lightColor2: '#A6BACE',
@@ -94,9 +100,9 @@ export const PRESETS: Preset[] = [
             sunGlareCol: '#0F2D61',
             vortexSpeed: 0.9,
             vortexTwist: -0.15,
-            noiseScaleBase: 0.3,
-            noiseScaleDet: 0.9,
-            cloudDensity: 3.0,
+            noiseScaleBase: 0.21,
+            noiseScaleDet: 1.11,
+            cloudDensity: 2.09,
             drawDist: 80,
             sunCorePow: 11,
             sunGlarePow: 16,
@@ -113,6 +119,7 @@ export const PRESETS: Preset[] = [
         name: 'Moonlight',
         icon: Moon,
         params: {
+            noiseMethod: 4, // Liquid
             cloudBaseCol: '#a2a196',
             cloudShadowCol: '#050810',
             sunGlowCol: '#F4FFA3',
@@ -125,8 +132,8 @@ export const PRESETS: Preset[] = [
             noiseScaleBase: 0.3,
             noiseScaleDet: 1.25,
             cloudDensity: 3.8,
-            drawDist: 80,
-            tunnelRadius: 2.8,
+            drawDist: 168.5,
+            tunnelRadius: 3.94,
             pathAmpX: 1.4,
             pathFreqX: 0.2,
             pathAmpY: 2.99,
@@ -145,4 +152,3 @@ export const PRESETS: Preset[] = [
         }
     }
 ];
-

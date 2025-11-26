@@ -265,16 +265,33 @@
                 }
                 
                 if (noiseMix > 0.0) {
-                    noiseMix += dt * 0.5; // 2 second transition
+                    // Ease-in-out logic for smoother landing
+                    // Instead of linear 0.0 -> 1.0, we use a smoothed curve
+                    // But we need to drive the 't' linearly and apply easing to the uniform value
+                    
+                    noiseMix += dt * 0.5; // Base speed (approx 2 seconds)
+                    
                     if (noiseMix >= 1.0) {
                         noiseMix = 0.0;
                         noiseTypeA = noiseTypeB;
+                        // Ensure final state is exact
+                        material.uniforms.uNoiseMix.value = 0.0;
+                        material.uniforms.uNoiseTypeA.value = noiseTypeA;
+                    } else {
+                        // Smoothstep easing: 3t^2 - 2t^3
+                        // This eases both start and end of the transition
+                        const smoothMix = noiseMix * noiseMix * (3.0 - 2.0 * noiseMix);
+                        material.uniforms.uNoiseMix.value = smoothMix;
+                        
+                        // Sync types during transition
+                        material.uniforms.uNoiseTypeA.value = noiseTypeA;
+                        material.uniforms.uNoiseTypeB.value = noiseTypeB;
                     }
+                } else {
+                    // Idle state
+                     material.uniforms.uNoiseTypeA.value = noiseTypeA;
+                     material.uniforms.uNoiseTypeB.value = noiseTypeB; // Prep for next
                 }
-                
-                material.uniforms.uNoiseTypeA.value = noiseTypeA;
-                material.uniforms.uNoiseTypeB.value = noiseTypeB;
-                material.uniforms.uNoiseMix.value = noiseMix;
 
                 material.uniforms.uCamZ.value = camZ;
                 material.uniforms.uVortexPhase.value = vortexPhase;

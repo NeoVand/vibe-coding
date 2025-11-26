@@ -1,6 +1,6 @@
 
 <script lang="ts">
-    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check, Gauge } from 'lucide-svelte';
+    import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check, Gauge, Wind, Droplets, Waves, CloudFog, Mountain, Snowflake, Shell, Radar } from 'lucide-svelte';
     import { PRESETS, type Preset } from '$lib/presets';
 	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
 	import { slide, fly, scale, fade } from 'svelte/transition';
@@ -552,7 +552,7 @@
         min?: number;
         max?: number;
         step?: number;
-        options?: { label: string, value: any }[];
+        options?: { label: string, value: any, icon?: any }[];
     };
 
     type Group = {
@@ -604,10 +604,10 @@
             icon: Cloud,
             items: [
                 { key: 'noiseMethod', label: 'Pattern', type: 'select', options: [
-                    { label: 'Soft Clouds', value: 1 },
-                    { label: 'Billows', value: 2 },
-                    { label: 'Inky', value: 3 },
-                    { label: 'Liquid', value: 4 }
+                    { label: 'Soft Clouds', value: 1, icon: Cloud },
+                    { label: 'Billows', value: 2, icon: Radar },
+                    { label: 'Rocky', value: 3, icon: Mountain },
+                    { label: 'Liquid', value: 4, icon: Shell }
                 ]},
                 { key: 'vortexSpeed', label: 'Vortex', min: -2.0, max: 2.0, step: 0.01, type: 'slider' },
                 { key: 'vortexTwist', label: 'Twist', min: -1.0, max: 1.0, step: 0.001, type: 'slider' },
@@ -806,30 +806,56 @@
                                                 </span>
                                             </button>
                                         {:else if item.type === 'select'}
-                                            <div class="relative">
-                                                <select
-                                                    id={item.key}
-                                                    bind:value={params[item.key]}
-                                                    class={cn(
-                                                        "w-full p-1.5 text-[10px] rounded border appearance-none cursor-pointer transition-colors outline-none font-mono",
-                                                        isDarkScene 
-                                                            ? "bg-white/5 border-white/10 text-white hover:bg-white/10 focus:border-white/30" 
-                                                            : "bg-black/5 border-black/5 text-black hover:bg-black/10 focus:border-black/20"
-                                                    )}
-                                                >
+                                            {#if item.key === 'noiseMethod'}
+                                                <div class="flex gap-2 mt-1">
                                                     {#each item.options || [] as option}
-                                                        <option value={option.value} class="text-black bg-white">{option.label}</option>
+                                                        <button 
+                                                            onclick={() => (params as any)[item.key] = option.value}
+                                                            class={cn(
+                                                                "flex-1 py-2 rounded-md flex items-center justify-center transition-all duration-200 relative group/btn",
+                                                                params[item.key] === option.value
+                                                                    ? (isDarkScene ? "bg-white/40 text-white shadow-lg scale-105" : "bg-black/40 text-white shadow-lg scale-105")
+                                                                    : (isDarkScene ? "bg-white/10 text-white/60 hover:bg-white/20 hover:text-white" : "bg-black/5 text-black/60 hover:bg-black/10 hover:text-black")
+                                                            )}
+                                                            title={option.label}
+                                                        >
+                                                            <option.icon size={16} />
+                                                            <!-- Tooltip -->
+                                                            <span class={cn(
+                                                                "absolute bottom-full mb-2 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-wider opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50",
+                                                                isDarkScene ? "bg-white text-black" : "bg-black text-white"
+                                                            )}>
+                                                                {option.label}
+                                                            </span>
+                                                        </button>
                                                     {/each}
-                                                </select>
-                                                <div class={cn(
-                                                    "absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none",
-                                                    isDarkScene ? "text-white/50" : "text-black/50"
-                                                )}>
-                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                        <path d="m6 9 6 6 6-6"/>
-                                                    </svg>
                                                 </div>
-                                            </div>
+                                            {:else}
+                                                <div class="relative">
+                                                    <select
+                                                        id={item.key}
+                                                        bind:value={params[item.key]}
+                                                        class={cn(
+                                                            "w-full p-1.5 text-[10px] rounded border appearance-none cursor-pointer transition-colors outline-none font-mono",
+                                                            isDarkScene 
+                                                                ? "bg-white/5 border-white/10 text-white hover:bg-white/10 focus:border-white/30" 
+                                                                : "bg-black/5 border-black/5 text-black hover:bg-black/10 focus:border-black/20"
+                                                        )}
+                                                    >
+                                                        {#each item.options || [] as option}
+                                                            <option value={option.value} class="text-black bg-white">{option.label}</option>
+                                                        {/each}
+                                                    </select>
+                                                    <div class={cn(
+                                                        "absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none",
+                                                        isDarkScene ? "text-white/50" : "text-black/50"
+                                                    )}>
+                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="m6 9 6 6 6-6"/>
+                                                        </svg>
+                                                    </div>
+                                                </div>
+                                            {/if}
                                         {/if}
                                     </div>
                                 {/if}
