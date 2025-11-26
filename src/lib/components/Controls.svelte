@@ -18,9 +18,9 @@
     let activeGroup = $state("Camera");
     let activePresetId = $state("default");
     let showPresets = $state(false);
-    let audioButtonShifted = $state(false); // Separate state for audio button position to prevent animation conflicts
+    let presetsVisible = $state(false); // Controls CSS visibility/animation state
     let hoverTimeout: NodeJS.Timeout;
-    let audioShiftTimeout: NodeJS.Timeout;
+    let presetsHideTimeout: NodeJS.Timeout;
 
     function toggle() {
         // Desktop: toggle open/close
@@ -47,22 +47,21 @@
     function handleMainMouseEnter() {
         if (isOpen || isTouch) return;
         clearTimeout(hoverTimeout);
-        clearTimeout(audioShiftTimeout);
+        clearTimeout(presetsHideTimeout);
         showPresets = true;
-        audioButtonShifted = true; // Move audio button down immediately when presets show
+        presetsVisible = true;
     }
 
     function handleMainMouseLeave() {
         if (isOpen || isTouch) return; // Don't hide if open
         // Use a longer timeout to allow bridging the gap
         hoverTimeout = setTimeout(() => {
-            showPresets = false;
-            // Delay audio button movement until after exit animations complete
-            // Exit animation: 150ms duration + (PRESETS.length - 1) * 30ms delay = ~240ms total
-            audioShiftTimeout = setTimeout(() => {
-                audioButtonShifted = false;
-            }, 300);
-        }, 300); // Increased from 100ms
+            presetsVisible = false; // Start CSS fade out
+            // Remove from DOM after animation completes
+            presetsHideTimeout = setTimeout(() => {
+                showPresets = false;
+            }, 400); // Wait for CSS animation to complete
+        }, 300);
     }
     
     // Touch handling for Mobile
@@ -77,23 +76,16 @@
             isLongPress = true;
             // Long Press: Open GUI, Hide Presets
             
-            // Sequence the state changes:
-            // 1. Start hiding presets immediately
-            showPresets = false;
+            // Start CSS fade out
+            presetsVisible = false;
             if (navigator.vibrate) navigator.vibrate(50);
             
-            // 2. Delay audio button shift until after exit animations
-            clearTimeout(audioShiftTimeout);
-            audioShiftTimeout = setTimeout(() => {
-                audioButtonShifted = false;
-            }, 300);
-            
-            // 3. Open GUI after a short delay to prevent frame drops from interrupting the exit animation
-            requestAnimationFrame(() => {
-                setTimeout(() => {
-                    isOpen = true;
-                }, 50);
-            });
+            // Remove from DOM after animation, then open GUI
+            clearTimeout(presetsHideTimeout);
+            presetsHideTimeout = setTimeout(() => {
+                showPresets = false;
+                isOpen = true;
+            }, 400);
         }, 500);
     }
 
@@ -111,17 +103,17 @@
             toggle();
         } else {
             // Toggle presets visibility
-            clearTimeout(audioShiftTimeout);
+            clearTimeout(presetsHideTimeout);
             if (showPresets) {
-                // Closing: delay audio button movement
-                showPresets = false;
-                audioShiftTimeout = setTimeout(() => {
-                    audioButtonShifted = false;
-                }, 300);
+                // Closing: CSS fade out first, then remove from DOM
+                presetsVisible = false;
+                presetsHideTimeout = setTimeout(() => {
+                    showPresets = false;
+                }, 400);
             } else {
-                // Opening: move audio button immediately
+                // Opening: add to DOM and make visible
                 showPresets = true;
-                audioButtonShifted = true;
+                presetsVisible = true;
             }
         }
     }
@@ -494,9 +486,9 @@
             updateVisualizer(); // Restart loop
         } else {
             // Mute: Fade Out
-            // Defer isMuted = true until fade completes for better visual transition
+            // Change icon IMMEDIATELY for instant user feedback
+            isMuted = true;
             fadeVolume(0.0, () => {
-                isMuted = true;
                 audio.pause();
                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
                 visualizerPath = "M 0 50 L 100 50";
@@ -889,7 +881,7 @@
         role="presentation"
     >
          <!-- Satellites -->
-        <!-- Use a keyed block to ensure Svelte tracks entrance/exit correctly when showPresets changes -->
+        <!-- Elements stay in DOM, CSS handles show/hide animation -->
          {#if showPresets && !isOpen}
             {#each PRESETS as preset, i (preset.id)}
                 <!-- 
@@ -908,13 +900,14 @@
                 {@const r = 42} 
                 {@const x = Math.cos(angle) * r}
                 {@const y = Math.sin(angle) * r}
-                <!-- Wrapper div for positioning so hover scaling doesn't affect layout flow or cause jitter -->
-                <!-- GPU acceleration hints: translate3d and backface-visibility prevent mobile flickering -->
+                <!-- CSS animation with staggered delays via custom properties -->
                 <div 
-                    class="absolute w-5 h-5 z-0 flex items-center justify-center"
-                    style="transform: translate3d(calc(-50% + {x}px), calc(-50% + {y}px), 0); top: 50%; left: 50%; -webkit-backface-visibility: hidden; backface-visibility: hidden; will-change: opacity;" 
+                    class={cn(
+                        "absolute w-5 h-5 z-0 flex items-center justify-center preset-satellite",
+                        presetsVisible ? "preset-visible" : "preset-hidden"
+                    )}
+                    style="--x: {x}px; --y: {y}px; --delay-in: {i * 60}ms; --delay-out: {(PRESETS.length - 1 - i) * 50}ms; top: 50%; left: 50%;"
                     in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
-                    out:fade|global={{ duration: 150, delay: (PRESETS.length - 1 - i) * 30 }}
                 >
                     <button
                         onclick={() => applyPreset(preset)}
@@ -966,7 +959,7 @@
              isDarkScene 
                 ? "bg-white/5 border-white/20 hover:bg-white/10"
                 : "bg-white/10 border-white/40 hover:bg-white/20",
-             audioButtonShifted ? "translate-y-7" : "" 
+             presetsVisible ? "translate-y-7" : "" 
         )}
         aria-label="Toggle Audio"
     >
@@ -992,6 +985,28 @@
 <style lang="postcss">
     .slider-input {
         @apply relative;
+    }
+
+    /* Preset satellite positioning and animation */
+    .preset-satellite {
+        transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+    }
+    
+    /* Exit animation - CSS controlled for reliability on mobile */
+    .preset-satellite.preset-hidden {
+        animation: preset-fade-out 200ms ease-out forwards;
+        animation-delay: var(--delay-out);
+    }
+    
+    @keyframes preset-fade-out {
+        from {
+            opacity: 1;
+        }
+        to {
+            opacity: 0;
+        }
     }
 
     /* Slider Thumb - Adaptive logic handled by CSS vars could be cleaner, but here we use specific colors */
