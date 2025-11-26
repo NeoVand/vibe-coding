@@ -21,6 +21,23 @@
     let presetsVisible = $state(false); // Controls CSS visibility/animation state
     let hoverTimeout: NodeJS.Timeout;
     let presetsHideTimeout: NodeJS.Timeout;
+    
+    // iOS 17+ detection - these versions have a WebKit bug with staggered CSS animations
+    let isIOS17Plus = $state(false);
+    
+    onMount(() => {
+        // Detect iOS 17+ by checking user agent
+        const ua = navigator.userAgent;
+        const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (isIOS) {
+            // Extract iOS version - look for "OS X_Y" pattern
+            const match = ua.match(/OS (\d+)[_\.]/);
+            if (match) {
+                const majorVersion = parseInt(match[1], 10);
+                isIOS17Plus = majorVersion >= 17;
+            }
+        }
+    });
 
     function toggle() {
         // Desktop: toggle open/close
@@ -900,13 +917,12 @@
                 {@const r = 42} 
                 {@const x = Math.cos(angle) * r}
                 {@const y = Math.sin(angle) * r}
-                <!-- CSS animation with staggered delays via custom properties -->
-                <!-- IMPORTANT: Using 'in:' only (not 'transition:') and explicit 'out:fade' with 0 duration 
-                     to prevent Svelte from playing the fly animation in reverse on exit -->
+                <!-- iOS 17+ gets simple fade (no stagger) to avoid WebKit animation bug -->
+                <!-- Other platforms get beautiful staggered animation -->
                 <div 
                     class={cn(
                         "absolute w-5 h-5 z-0 flex items-center justify-center preset-satellite",
-                        presetsVisible ? "preset-visible" : "preset-hidden"
+                        presetsVisible ? "preset-visible" : (isIOS17Plus ? "preset-hidden-simple" : "preset-hidden")
                     )}
                     style="--x: {x}px; --y: {y}px; --delay-in: {i * 60}ms; --delay-out: {(PRESETS.length - 1 - i) * 50}ms; top: 50%; left: 50%;"
                     in:fly|global={{ x: -x, y: -y, duration: 300, delay: i * 60, easing: cubicOut }}
@@ -914,7 +930,6 @@
                 >
                     <button
                         onclick={() => applyPreset(preset)}
-                        style="-webkit-backface-visibility: hidden; -webkit-transform: translate3d(0,0,0);"
                         class={cn(
                             "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center transition-all duration-200 hover:scale-125",
                             isDarkScene 
@@ -1009,13 +1024,18 @@
         opacity: 1;
     }
     
-    /* Exit animation - CSS controlled for reliability on mobile */
+    /* Exit animation - staggered fade for non-iOS 17 devices */
     .preset-satellite.preset-hidden {
         animation: preset-fade-out 200ms ease-out forwards;
         animation-delay: var(--delay-out);
-        /* Keep compositing hints during animation */
         -webkit-backface-visibility: hidden;
         backface-visibility: hidden;
+    }
+    
+    /* Simple exit animation for iOS 17+ - all fade at once, no stagger, no flicker */
+    .preset-satellite.preset-hidden-simple {
+        opacity: 0;
+        transition: opacity 150ms ease-out;
     }
     
     @keyframes preset-fade-out {
