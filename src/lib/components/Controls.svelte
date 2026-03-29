@@ -1,7 +1,7 @@
 
 <script lang="ts">
     import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check, Gauge, Wind, Droplets, Waves, CloudFog, Mountain, Snowflake, Shell, Radar } from 'lucide-svelte';
-    import { PRESETS, type Preset } from '$lib/presets';
+    import { PRESETS, THEME_CATEGORIES, type Preset } from '$lib/presets';
 	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
 	import { slide, fly, scale, fade } from 'svelte/transition';
     import { onMount } from 'svelte';
@@ -9,16 +9,24 @@
     import { clsx } from 'clsx';
     import { twMerge } from 'tailwind-merge';
     import TunnelIcon from '$lib/components/icons/TunnelIcon.svelte';
+    import WaveCircle from '$lib/components/icons/WaveCircle.svelte';
 
     import { audioState } from '$lib/stores/audio';
+    import { activeThemeStore } from '$lib/stores/theme';
 
-	let { params = $bindable() }: { params: ShaderParams } = $props();
+	let { params = $bindable(), activeTheme = $bindable('clouds') }: { params: ShaderParams; activeTheme?: string } = $props();
+
+    // Sync activeTheme prop to store for ShaderBackground to read
+    $effect(() => {
+        activeThemeStore.set(activeTheme);
+    });
 
 	let isOpen = $state(false);
     let activeGroup = $state("Camera");
     let activePresetId = $state("default");
-    // Single state controls visibility - elements always in DOM, no insertion/removal
-    let presetsVisible = $state(false);
+    // Each theme bubble tracks its own satellite visibility independently
+    let visibleThemeBubble = $state<string | null>(null);
+    let presetsVisible = $state(false); // Legacy - controls panel presets row
     let hoverTimeout: NodeJS.Timeout;
 
     function toggle() {
@@ -32,24 +40,70 @@
         isOpen = false;
     }
 
+    // Filter presets by active theme
+    let themePresets = $derived(PRESETS.filter(p => p.theme === activeTheme));
+
     function applyPreset(preset: Preset) {
+        // Switch theme if this preset belongs to a different one
+        if (preset.theme !== activeTheme) {
+            activeTheme = preset.theme;
+        }
         Object.assign(params, preset.params);
         activePresetId = preset.id;
     }
-    
+
+    function switchTheme(themeId: string) {
+        if (themeId === activeTheme) return;
+        activeTheme = themeId;
+        // For cosmos use the last preset (Arctic — most polished),
+        // for clouds use the first preset (Dreamy — the default).
+        const themePresets = PRESETS.filter(p => p.theme === themeId);
+        const defaultPreset = themeId === 'cosmos' ? themePresets.at(-1) : themePresets[0];
+        if (defaultPreset) {
+            applyPreset(defaultPreset);
+        }
+        presetsVisible = false;
+    }
+
     // Determine active icon
     let ActiveIcon = $derived(PRESETS.find(p => p.id === activePresetId)?.icon || PRESETS[0].icon);
+    let ActiveThemeIcon = $derived(THEME_CATEGORIES.find(c => c.id === activeTheme)?.icon || Cloud);
+
+    // Per-theme derived state
+    let cloudPresets = $derived(PRESETS.filter(p => p.theme === 'clouds'));
+    let cosmosPresets = $derived(PRESETS.filter(p => p.theme === 'cosmos'));
+    let cloudsActive = $derived(activeTheme === 'clouds');
+    let cosmosActive = $derived(activeTheme === 'cosmos');
+    let cloudsSatellitesVisible = $derived(visibleThemeBubble === 'clouds' && !isOpen);
+    let cosmosSatellitesVisible = $derived(visibleThemeBubble === 'cosmos' && !isOpen);
+    let CloudActiveIcon = $derived(PRESETS.find(p => p.id === activePresetId && p.theme === 'clouds')?.icon || Cloud);
+    let CosmosActiveIcon = $derived(PRESETS.find(p => p.id === activePresetId && p.theme === 'cosmos')?.icon || WaveCircle);
 
     function handleMainMouseEnter() {
         if (isOpen || isTouch) return;
         clearTimeout(hoverTimeout);
         presetsVisible = true;
+        visibleThemeBubble = activeTheme;
     }
 
     function handleMainMouseLeave() {
         if (isOpen || isTouch) return;
         hoverTimeout = setTimeout(() => {
             presetsVisible = false;
+            visibleThemeBubble = null;
+        }, 300);
+    }
+
+    function handleThemeBubbleMouseEnter(themeId: string) {
+        if (isOpen || isTouch) return;
+        clearTimeout(hoverTimeout);
+        visibleThemeBubble = themeId;
+    }
+
+    function handleThemeBubbleMouseLeave() {
+        if (isOpen || isTouch) return;
+        hoverTimeout = setTimeout(() => {
+            visibleThemeBubble = null;
         }, 300);
     }
     
@@ -155,26 +209,21 @@
         Object.assign(params, defaults);
     }
 
-    function handleDownload(group: Group) {
-        const data: Record<string, any> = {};
-        
-        // Add metadata header
-        data['preset'] = activePresetId;
-        data['group'] = group.title;
-
-        for (const item of group.items) {
-            data[item.key] = params[item.key];
-        }
-        
-        // Simple YAML-like format
-        const yamlLines = Object.entries(data).map(([k, v]) => `${k}: ${v}`);
-        const content = yamlLines.join('\n');
-        
-        const blob = new Blob([content], { type: 'text/yaml' });
+    function handleExportAll() {
+        // Export the complete current params as a valid JSON preset snapshot.
+        // The format matches the Preset type so it can be pasted directly into presets.ts.
+        const snapshot = {
+            id: `custom-${Date.now()}`,
+            name: 'Custom',
+            theme: activeTheme,
+            params: { ...params },
+        };
+        const content = JSON.stringify(snapshot, null, 2);
+        const blob = new Blob([content], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${group.title.toLowerCase()}-${activePresetId}.yaml`;
+        a.download = `preset-${activeTheme}-${activePresetId}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -442,13 +491,15 @@
         if (isMuted) {
             // Unmute: Fade In
             isMuted = false;
-            
+            localStorage.setItem('audio-muted', 'false');
+
             // Ensure gain is 0 before playing
             if (gainNode) gainNode.gain.value = 0;
-            
+
             audio.play().catch(() => {
                 // If autoplay blocked, we just stay muted until user interacts again
-                isMuted = true; 
+                isMuted = true;
+                localStorage.setItem('audio-muted', 'true');
             });
             fadeVolume(1.0);
             updateVisualizer(); // Restart loop
@@ -456,6 +507,7 @@
             // Mute: Fade Out
             // Change icon IMMEDIATELY for instant user feedback
             isMuted = true;
+            localStorage.setItem('audio-muted', 'true');
             fadeVolume(0.0, () => {
                 audio.pause();
                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -505,21 +557,26 @@
         const audioPath = `${base === '/' ? '' : base}/music/intro-wind.mp3`;
         audio = new Audio(audioPath);
         audio.loop = true;
-        // Remove initial silence and fade-in to fix "not immediately on" issue
-        // audio.volume = 0; 
-        
-        // Attempt auto-play
-        audio.play().then(() => {
-             initAudioContext(); 
-             if (audioContext && audioContext.state === 'suspended') {
-                 audioContext.resume();
-             }
-             isMuted = false;
-        }).catch(() => {
-            // Autoplay blocked - set UI to muted state
-            console.log("Autoplay blocked by browser policy - User interaction required");
+
+        // Restore muted state across reloads so HMR / refreshes don't restart music
+        const wasMuted = localStorage.getItem('audio-muted') === 'true';
+        if (wasMuted) {
             isMuted = true;
-        });
+            // Don't attempt autoplay — user explicitly silenced it
+        } else {
+            // Attempt auto-play
+            audio.play().then(() => {
+                initAudioContext();
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                isMuted = false;
+            }).catch(() => {
+                // Autoplay blocked - set UI to muted state
+                console.log("Autoplay blocked by browser policy - User interaction required");
+                isMuted = true;
+            });
+        }
 
         return () => {
             if (fadeInterval) clearInterval(fadeInterval);
@@ -533,10 +590,14 @@
     // Calculate perceived scene brightness based on dominant colors
     let sceneBrightness = $derived.by(() => {
         const bgLum = getLuminance(params.bgColor);
+        if (activeTheme === 'cosmos') {
+            // Water mode: use nebula/water colors (cloud params are irrelevant here)
+            const shallowLum = getLuminance(params.nebulaColor1);
+            const deepLum    = getLuminance(params.nebulaColor2);
+            return (bgLum * 0.4) + (shallowLum * 0.35) + (deepLum * 0.25);
+        }
         const cloudLum = getLuminance(params.cloudBaseCol);
         const lightLum = getLuminance(params.lightColor1);
-        
-        // Weighted average: Background matters most, then clouds
         return (bgLum * 0.5) + (cloudLum * 0.3) + (lightLum * 0.2);
     });
 
@@ -561,7 +622,8 @@
         items: ControlItem[];
     };
 
-    const groups: Group[] = [
+    // Shared sections (both themes)
+    const sharedGroups: Group[] = [
         {
             title: "Performance",
             icon: Gauge,
@@ -593,21 +655,24 @@
                 { key: 'pathFreqX', label: 'Freq X', min: 0, max: 2.0, step: 0.001, type: 'slider' },
                 { key: 'pathAmpY', label: 'Amp Y', min: 0, max: 10.0, step: 0.01, type: 'slider' },
                 { key: 'pathFreqY', label: 'Freq Y', min: 0, max: 2.0, step: 0.001, type: 'slider' },
-                // Colors
                 { key: 'bgColor', label: 'Background', type: 'color' },
                 { key: 'lightColor1', label: 'Ambient', type: 'color' },
                 { key: 'lightColor2', label: 'Direct Light', type: 'color' },
             ]
         },
+    ];
+
+    // Cloud-specific sections
+    const cloudGroups: Group[] = [
         {
             title: "Clouds",
             icon: Cloud,
             items: [
                 { key: 'noiseMethod', label: 'Pattern', type: 'select', options: [
                     { label: 'Soft Clouds', value: 1, icon: Cloud },
-                    { label: 'Billows', value: 2, icon: Radar },
-                    { label: 'Rocky', value: 3, icon: Mountain },
-                    { label: 'Liquid', value: 4, icon: Shell }
+                    { label: 'Ridged', value: 2, icon: Radar },
+                    { label: 'Organic', value: 3, icon: Mountain },
+                    { label: 'Flowing', value: 4, icon: Shell }
                 ]},
                 { key: 'vortexSpeed', label: 'Vortex', min: -2.0, max: 2.0, step: 0.01, type: 'slider' },
                 { key: 'vortexTwist', label: 'Twist', min: -1.0, max: 1.0, step: 0.001, type: 'slider' },
@@ -615,7 +680,6 @@
                 { key: 'noiseScaleDet', label: 'Detail', min: 0.1, max: 2.0, step: 0.01, type: 'slider' },
                 { key: 'cloudDensity', label: 'Density', min: 0, max: 10.0, step: 0.01, type: 'slider' },
                 { key: 'drawDist', label: 'Dist', min: 10, max: 200, step: 0.1, type: 'slider' },
-                // Colors
                 { key: 'cloudBaseCol', label: 'Base', type: 'color' },
                 { key: 'cloudShadowCol', label: 'Shadow', type: 'color' },
             ]
@@ -624,30 +688,85 @@
             title: "Lightning",
             icon: Zap,
             items: [
-                // Lightning
                 { key: 'lightningEnabled', label: 'Enabled', type: 'checkbox' },
                 { key: 'lightningChance', label: 'Flash Freq', min: 0.0, max: 1.0, step: 0.01, type: 'slider' },
                 { key: 'lightningIntensity', label: 'Intensity', min: 0.0, max: 5.0, step: 0.1, type: 'slider' },
                 { key: 'lightningAudioSync', label: 'Audio Sync', type: 'checkbox' },
                 { key: 'lightningThreshold', label: 'Threshold', min: 0.0, max: 1.0, step: 0.01, type: 'slider' },
-                // Colors
                 { key: 'lightningColor', label: 'Color', type: 'color' },
             ]
         },
-        {
-            title: "Sun",
-            icon: Sun,
-            items: [
-                { key: 'sunGlowPow', label: 'Glow', min: 1, max: 200, step: 0.1, type: 'slider' },
-                { key: 'sunCorePow', label: 'Core', min: 1, max: 200, step: 0.1, type: 'slider' },
-                { key: 'sunGlarePow', label: 'Glare', min: 1, max: 50, step: 0.1, type: 'slider' },
-                // Colors
-                { key: 'sunGlowCol', label: 'Glow', type: 'color' },
-                { key: 'sunCoreCol', label: 'Core', type: 'color' },
-                { key: 'sunGlareCol', label: 'Glare', type: 'color' },
-            ]
-        }
     ];
+
+    // Water-mode Camera group — only the params that actually drive the water camera
+    const waterCameraGroup: Group = {
+        title: "Camera",
+        icon: Video,
+        items: [
+            { key: 'camSpeed', label: 'Drift Speed', min: 0, max: 10, step: 0.01, type: 'slider' },
+            { key: 'camFov', label: 'FOV', min: 1.0, max: 3.0, step: 0.01, type: 'slider' },
+            { key: 'camRollAmp', label: 'Roll Amp', min: 0, max: 1.0, step: 0.01, type: 'slider' },
+            { key: 'camRollFreq', label: 'Roll Freq', min: 0, max: 1.0, step: 0.01, type: 'slider' },
+        ]
+    };
+
+    // Water-specific sections
+    const waterGroups: Group[] = [
+        {
+            title: "Vortex",
+            icon: WaveCircle,
+            items: [
+                { key: 'nebulaDensity', label: 'Size', min: 1.0, max: 8.0, step: 0.1, type: 'slider' },
+                { key: 'noiseScaleBase', label: 'Scale', min: 0.05, max: 0.8, step: 0.01, type: 'slider' },
+                { key: 'vortexSpeed', label: 'Spin Speed', min: -3.0, max: 3.0, step: 0.05, type: 'slider' },
+                { key: 'starGlowSize', label: 'Drift Amp', min: 0.0, max: 3.0, step: 0.1, type: 'slider' },
+                { key: 'pathFreqX', label: 'Drift X', min: 0, max: 1.0, step: 0.005, type: 'slider' },
+                { key: 'pathFreqY', label: 'Drift Y', min: 0, max: 1.0, step: 0.005, type: 'slider' },
+            ]
+        },
+        {
+            title: "Fog",
+            icon: CloudFog,
+            items: [
+                { key: 'starDensity', label: 'Start', min: 0.0, max: 50.0, step: 0.5, type: 'slider' },
+                { key: 'starBrightness', label: 'Range', min: 1.0, max: 40.0, step: 0.5, type: 'slider' },
+                { key: 'nebulaColor3', label: 'Mist', type: 'color' },
+            ]
+        },
+        {
+            title: "Surface",
+            icon: Droplets,
+            items: [
+                { key: 'vortexTwist', label: 'Bump Depth', min: 0.0, max: 2.0, step: 0.05, type: 'slider' },
+                { key: 'noiseScaleDet', label: 'Wave Freq', min: 0.05, max: 1.0, step: 0.01, type: 'slider' },
+                { key: 'nebulaFalloff', label: 'Reflectivity', min: 0.0, max: 1.0, step: 0.01, type: 'slider' },
+                { key: 'sunGlowCol', label: 'Reflection', type: 'color' },
+                { key: 'nebulaColor1', label: 'Shallow', type: 'color' },
+                { key: 'nebulaColor2', label: 'Deep', type: 'color' },
+            ]
+        },
+    ];
+
+    // Sun/light section (shared but renamed per theme)
+    const lightGroup: Group = {
+        title: "Light",
+        icon: Sun,
+        items: [
+            { key: 'sunGlowPow', label: 'Glow', min: 1, max: 200, step: 0.1, type: 'slider' },
+            { key: 'sunCorePow', label: 'Core', min: 1, max: 200, step: 0.1, type: 'slider' },
+            { key: 'sunGlarePow', label: 'Glare', min: 1, max: 50, step: 0.1, type: 'slider' },
+            { key: 'sunGlowCol', label: 'Glow', type: 'color' },
+            { key: 'sunCoreCol', label: 'Core', type: 'color' },
+            { key: 'sunGlareCol', label: 'Glare', type: 'color' },
+        ]
+    };
+
+    // Dynamically build groups based on active theme
+    let groups = $derived(
+        activeTheme === 'clouds'
+            ? [...sharedGroups, ...cloudGroups, lightGroup]
+            : [sharedGroups[0], waterCameraGroup, ...waterGroups]
+    );
 </script>
 
 <!-- Backdrop -->
@@ -675,6 +794,23 @@
         )}
         style={isDarkScene ? "background-color: rgba(255,255,255,0.15);" : "background-color: rgba(255,255,255,0.4);"}
     >
+        <!-- Export all current params as a full JSON preset snapshot -->
+        <div class={cn("flex items-center justify-end px-4 py-2 border-b transition-colors duration-500", isDarkScene ? "border-white/10" : "border-black/5")}>
+            <button
+                onclick={handleExportAll}
+                class={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-[0.15em] transition-all duration-200 hover:scale-105",
+                    isDarkScene
+                        ? "text-white/40 hover:text-white hover:bg-white/10"
+                        : "text-black/40 hover:text-black hover:bg-black/5"
+                )}
+                title="Export all settings as JSON"
+            >
+                <Download size={10} />
+                Export Preset
+            </button>
+        </div>
+
         {#each groups as group}
             <div class={cn("border-b last:border-0 transition-colors duration-500", isDarkScene ? "border-white/10" : "border-black/5")}>
                 <button 
@@ -707,35 +843,20 @@
 
                     {#if activeGroup === group.title && isGroupDirty(group)}
                         <div transition:fly={{ x: 10, duration: 200 }} class="flex items-center gap-2">
-                            <div 
+                            <div
                                 role="button"
                                 tabindex="0"
                                 onclick={(e) => { e.stopPropagation(); handleReset(group); }}
-                                onkeydown={(e) => { if(e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleReset(group); }}} 
+                                onkeydown={(e) => { if(e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleReset(group); }}}
                                 class={cn(
-                                    "p-1.5 rounded-full transition-all duration-200 hover:scale-110", 
-                                    isDarkScene 
-                                        ? "text-white/30 hover:text-white hover:bg-white/10" 
+                                    "p-1.5 rounded-full transition-all duration-200 hover:scale-110",
+                                    isDarkScene
+                                        ? "text-white/30 hover:text-white hover:bg-white/10"
                                         : "text-black/30 hover:text-black hover:bg-black/5"
                                 )}
                                 title="Reset to defaults"
                             >
                                 <RotateCcw size={11} />
-                            </div>
-                            <div 
-                                role="button"
-                                tabindex="0"
-                                onclick={(e) => { e.stopPropagation(); handleDownload(group); }}
-                                onkeydown={(e) => { if(e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleDownload(group); }}}
-                                class={cn(
-                                    "p-1.5 rounded-full transition-all duration-200 hover:scale-110", 
-                                    isDarkScene 
-                                        ? "text-white/30 hover:text-white hover:bg-white/10" 
-                                        : "text-black/30 hover:text-black hover:bg-black/5"
-                                )}
-                                title="Save config"
-                            >
-                                <Download size={11} />
                             </div>
                         </div>
                     {/if}
@@ -899,90 +1020,207 @@
 {/if}
 
 <div class="fixed top-4 right-4 z-50 flex flex-col items-end gap-4 pointer-events-none">
-    <!-- Main Toggle Wrapper -->
-    <div 
+    <!-- Clouds Theme Bubble (with satellites) -->
+    <div
         class="relative pointer-events-auto"
-        onmouseenter={handleMainMouseEnter} 
-        onmouseleave={handleMainMouseLeave}
+        onmouseenter={() => handleThemeBubbleMouseEnter('clouds')}
+        onmouseleave={handleThemeBubbleMouseLeave}
         role="presentation"
     >
-         <!-- Satellites - ALWAYS in DOM, visibility controlled by CSS only -->
-         <!-- No Svelte transitions - pure CSS handles all animation to avoid iOS 17 WebKit bugs -->
-         {#if !isOpen}
-            {#each PRESETS as preset, i (preset.id)}
-                {@const totalSweep = (Math.PI / 2) + (14 * Math.PI / 180)} 
+        {#if !isOpen}
+            {#each cloudPresets as preset, i (preset.id)}
+                {@const totalSweep = (Math.PI / 2) + (14 * Math.PI / 180)}
                 {@const startAngle = Math.PI + (7 * Math.PI / 180)}
-                {@const angle = startAngle - (i * totalSweep / (PRESETS.length - 1))}
-                {@const r = 42} 
+                {@const angle = startAngle - (i * totalSweep / Math.max(cloudPresets.length - 1, 1))}
+                {@const r = 42}
                 {@const x = Math.cos(angle) * r}
                 {@const y = Math.sin(angle) * r}
-                <div 
+                <div
                     class={cn(
                         "absolute w-5 h-5 z-0 flex items-center justify-center preset-satellite",
-                        presetsVisible ? "preset-visible" : "preset-hidden"
+                        cloudsSatellitesVisible ? "preset-visible" : "preset-hidden"
                     )}
-                    style="--x: {x}px; --y: {y}px; --i: {i}; --total: {PRESETS.length}; top: 50%; left: 50%;"
+                    style="--x: {x}px; --y: {y}px; --i: {i}; --total: {cloudPresets.length}; top: 50%; left: 50%;"
                 >
                     <button
                         onclick={() => applyPreset(preset)}
-                        disabled={!presetsVisible}
+                        disabled={!cloudsSatellitesVisible}
                         class={cn(
                             "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center hover:scale-125",
-                            isDarkScene 
-                                ? "bg-white/10 border-white/20 text-white" 
+                            isDarkScene
+                                ? "bg-white/10 border-white/20 text-white"
                                 : "bg-white/20 border-white/40 text-black",
-                             activePresetId === preset.id && "scale-110 brightness-125"
+                            activePresetId === preset.id && "scale-110 brightness-125"
                         )}
                         aria-label={preset.name}
                         title={preset.name}
                     >
-                       <preset.icon size={10} fill={activePresetId === preset.id ? "currentColor" : "none"} />
+                        <preset.icon size={10} fill={activePresetId === preset.id ? "currentColor" : "none"} />
                     </button>
                 </div>
             {/each}
-         {/if}
+        {/if}
 
-        <button 
-            onclick={handleClick}
+        <button
+            onclick={(e) => {
+                if (isTouch) return;
+                if (cloudsActive) {
+                    if (!cloudsSatellitesVisible) {
+                        visibleThemeBubble = 'clouds';
+                    } else {
+                        toggle();
+                    }
+                } else {
+                    switchTheme('clouds');
+                }
+            }}
             ontouchstart={handleTouchStart}
-            ontouchend={handleTouchEnd}
+            ontouchend={(e) => {
+                clearTimeout(longPressTimer);
+                e.preventDefault();
+                if (isLongPress) return;
+                if (cloudsActive) {
+                    if (isOpen) { toggle(); }
+                    else { visibleThemeBubble = visibleThemeBubble === 'clouds' ? null : 'clouds'; }
+                } else {
+                    switchTheme('clouds');
+                }
+            }}
             oncontextmenu={handleContextMenu}
             class={cn(
                 "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border z-10 select-none",
-                isDarkScene 
+                isDarkScene
                     ? "bg-white/5 border-white/20 hover:bg-white/10"
                     : "bg-white/10 border-white/40 hover:bg-white/20"
             )}
-            aria-label="Open controls"
+            aria-label="Clouds"
         >
-            {#if isOpen}
-                 <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black/60")} />
+            {#if isOpen && cloudsActive}
+                <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black/60")} />
             {:else}
-                 <!-- Icon swap controlled by presetsVisible state (not CSS hover) so it syncs with satellite animation -->
-                 <div class={cn(
+                <div class={cn(
                     "absolute transition-all duration-300 flex items-center justify-center",
-                    presetsVisible ? "scale-0 opacity-0" : "scale-100 opacity-100"
-                 )}>
-                    <ActiveIcon size={18} class={isDarkScene ? "text-white" : "text-black/60"} />
-                 </div>
-                 <Settings size={18} class={cn(
+                    cloudsSatellitesVisible ? "scale-0 opacity-0" : "scale-100 opacity-100"
+                )}>
+                    <CloudActiveIcon size={18} class={isDarkScene ? "text-white" : "text-black/60"}
+                        fill={cloudsActive ? "currentColor" : "none"} />
+                </div>
+                <Settings size={18} class={cn(
                     "absolute transition-all duration-300",
-                    presetsVisible ? "scale-100 opacity-100 rotate-0" : "scale-0 opacity-0 rotate-[-90deg]",
+                    cloudsSatellitesVisible ? "scale-100 opacity-100 rotate-0" : "scale-0 opacity-0 rotate-[-90deg]",
                     isDarkScene ? "text-white" : "text-black/60"
-                 )} />
+                )} />
+            {/if}
+        </button>
+    </div>
+
+    <!-- Cosmos Theme Bubble (with satellites) -->
+    <div
+        class={cn(
+            "relative pointer-events-auto transition-transform duration-500",
+            cloudsSatellitesVisible ? "translate-y-7" : ""
+        )}
+        onmouseenter={() => handleThemeBubbleMouseEnter('cosmos')}
+        onmouseleave={handleThemeBubbleMouseLeave}
+        role="presentation"
+    >
+        {#if !isOpen}
+            {#each cosmosPresets as preset, i (preset.id)}
+                {@const totalSweep = (Math.PI / 2) + (14 * Math.PI / 180)}
+                {@const startAngle = Math.PI + (7 * Math.PI / 180)}
+                {@const angle = startAngle - (i * totalSweep / Math.max(cosmosPresets.length - 1, 1))}
+                {@const r = 42}
+                {@const x = Math.cos(angle) * r}
+                {@const y = Math.sin(angle) * r}
+                <div
+                    class={cn(
+                        "absolute w-5 h-5 z-0 flex items-center justify-center preset-satellite",
+                        cosmosSatellitesVisible ? "preset-visible" : "preset-hidden"
+                    )}
+                    style="--x: {x}px; --y: {y}px; --i: {i}; --total: {cosmosPresets.length}; top: 50%; left: 50%;"
+                >
+                    <button
+                        onclick={() => applyPreset(preset)}
+                        disabled={!cosmosSatellitesVisible}
+                        class={cn(
+                            "w-5 h-5 rounded-full shadow-lg backdrop-blur-md border flex items-center justify-center hover:scale-125",
+                            isDarkScene
+                                ? "bg-white/10 border-white/20 text-white"
+                                : "bg-white/20 border-white/40 text-black",
+                            activePresetId === preset.id && "scale-110 brightness-125"
+                        )}
+                        aria-label={preset.name}
+                        title={preset.name}
+                    >
+                        <preset.icon size={10} fill={activePresetId === preset.id ? "currentColor" : "none"} />
+                    </button>
+                </div>
+            {/each}
+        {/if}
+
+        <button
+            onclick={(e) => {
+                if (isTouch) return;
+                if (cosmosActive) {
+                    if (!cosmosSatellitesVisible) {
+                        visibleThemeBubble = 'cosmos';
+                    } else {
+                        toggle();
+                    }
+                } else {
+                    switchTheme('cosmos');
+                }
+            }}
+            ontouchstart={handleTouchStart}
+            ontouchend={(e) => {
+                clearTimeout(longPressTimer);
+                e.preventDefault();
+                if (isLongPress) return;
+                if (cosmosActive) {
+                    if (isOpen) { toggle(); }
+                    else { visibleThemeBubble = visibleThemeBubble === 'cosmos' ? null : 'cosmos'; }
+                } else {
+                    switchTheme('cosmos');
+                }
+            }}
+            oncontextmenu={handleContextMenu}
+            class={cn(
+                "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border z-10 select-none",
+                isDarkScene
+                    ? "bg-white/5 border-white/20 hover:bg-white/10"
+                    : "bg-white/10 border-white/40 hover:bg-white/20"
+            )}
+            aria-label="Cosmos"
+        >
+            {#if isOpen && cosmosActive}
+                <Settings size={18} class={cn("animate-[spin_3s_linear_infinite]", isDarkScene ? "text-white" : "text-black/60")} />
+            {:else}
+                <div class={cn(
+                    "absolute transition-all duration-300 flex items-center justify-center",
+                    cosmosSatellitesVisible ? "scale-0 opacity-0" : "scale-100 opacity-100"
+                )}>
+                    <CosmosActiveIcon size={18} class={isDarkScene ? "text-white" : "text-black/60"}
+                        fill={cosmosActive ? "currentColor" : "none"} />
+                </div>
+                <Settings size={18} class={cn(
+                    "absolute transition-all duration-300",
+                    cosmosSatellitesVisible ? "scale-100 opacity-100 rotate-0" : "scale-0 opacity-0 rotate-[-90deg]",
+                    isDarkScene ? "text-white" : "text-black/60"
+                )} />
             {/if}
         </button>
     </div>
 
     <!-- Audio Button -->
-    <button 
+    <button
         onclick={toggleAudio}
         class={cn(
             "group relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-500 shadow-lg backdrop-blur-md border overflow-hidden pointer-events-auto",
-             isDarkScene 
+             isDarkScene
                 ? "bg-white/5 border-white/20 hover:bg-white/10"
                 : "bg-white/10 border-white/40 hover:bg-white/20",
-             presetsVisible ? "translate-y-7" : "" 
+             cloudsSatellitesVisible && cosmosSatellitesVisible ? "translate-y-14"
+                : (cloudsSatellitesVisible || cosmosSatellitesVisible) ? "translate-y-7" : ""
         )}
         aria-label="Toggle Audio"
     >

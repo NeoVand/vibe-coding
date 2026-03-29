@@ -1,4 +1,5 @@
-export const uniforms = `
+// Base uniforms shared across all themes
+export const baseUniforms = `
     uniform vec3 iResolution;
     uniform float iTime;
 
@@ -7,20 +8,11 @@ export const uniforms = `
     uniform float uVortexPhase;
 
     // Pre-computed noise phase (wrapped for precision safety)
-    // Avoids large-value subtraction (uCamZ - iTime*k) in the shader
     uniform float uNoisePhase;
 
     uniform sampler2D iChannel0;
     uniform sampler2D iChannel1;
-    
-    uniform int LOOK;
-    uniform int NOISE_METHOD;
-    
-    // Noise Transition Uniforms
-    uniform int uNoiseTypeA;
-    uniform int uNoiseTypeB;
-    uniform float uNoiseMix;
-    
+
     uniform int USE_LOD;
     uniform int RENDER_STEPS;
     uniform float DRAW_DIST;
@@ -53,11 +45,12 @@ export const uniforms = `
     uniform vec3 SUN_GLARE_COL;
     uniform float SUN_GLARE_POW;
 
-    uniform int LIGHTNING_ENABLED;
-    uniform float LIGHTNING_CHANCE;
-    uniform vec3 LIGHTNING_COLOR;
-    uniform float LIGHTNING_INTENSITY;
-    
-    uniform int LIGHTNING_AUDIO_SYNC;
+    // Theme fade for smooth transitions
+    uniform float uFadeAlpha;
+
+    // Audio
     uniform float AUDIO_BEAT;
+    uniform float AUDIO_BASS;
+    uniform float AUDIO_MID;
+    uniform float AUDIO_HIGH;
 `;

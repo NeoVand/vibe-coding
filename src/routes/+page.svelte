@@ -3,20 +3,32 @@
 	import Controls from '$lib/components/Controls.svelte';
 	import { defaultParams } from '$lib/shaderParams';
     import { onMount } from 'svelte';
-    import type { Component } from 'svelte';
+    import { activeThemeStore } from '$lib/stores/theme';
+    import { PRESETS } from '$lib/presets';
+    import { get } from 'svelte/store';
 
 	let params = $state({ ...defaultParams });
+    let activeTheme = $state(get(activeThemeStore));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let ShaderBackgroundComponent = $state<Component<any> | null>(null);
+    let ShaderBackgroundModule: any = $state(null);
 
     onMount(async () => {
-        const module = await import('$lib/components/ShaderBackground.svelte');
-        ShaderBackgroundComponent = module.default;
+        ShaderBackgroundModule = await import('$lib/components/ShaderBackground.svelte');
+
+        // If loading with a saved theme, apply its first preset
+        const savedTheme = get(activeThemeStore);
+        if (savedTheme !== 'clouds') {
+            activeTheme = savedTheme;
+            const firstPreset = PRESETS.find(p => p.theme === savedTheme);
+            if (firstPreset) {
+                Object.assign(params, firstPreset.params);
+            }
+        }
     });
 </script>
 
-{#if ShaderBackgroundComponent}
-    <ShaderBackgroundComponent {params} />
+{#if ShaderBackgroundModule}
+    <svelte:component this={ShaderBackgroundModule.default} {params} {activeTheme} />
 {/if}
 
-<Controls bind:params />
+<Controls bind:params bind:activeTheme />

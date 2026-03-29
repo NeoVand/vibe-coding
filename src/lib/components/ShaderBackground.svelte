@@ -3,9 +3,23 @@
 	import * as THREE from 'three';
     import type { ShaderParams } from '$lib/shaderParams';
     import { audioState } from '$lib/stores/audio';
+    import { activeThemeStore } from '$lib/stores/theme';
     import { vertexShader, fragmentShader } from '$lib/shaders/cloud-tunnel';
+    import { vertexShader as cosmosVertex, fragmentShader as cosmosFragment } from '$lib/shaders/themes/cosmos/index';
 
-	let { params }: { params: ShaderParams } = $props();
+	let { params, activeTheme = 'clouds' }: { params: ShaderParams; activeTheme?: string } = $props();
+
+    // Theme shader lookup
+    const themeShaders: Record<string, { vertex: string; fragment: string }> = {
+        clouds: { vertex: vertexShader, fragment: fragmentShader },
+        cosmos: { vertex: cosmosVertex, fragment: cosmosFragment },
+    };
+
+    let currentThemeId = activeTheme;
+
+    // Track theme from store (polled in animate loop, not reactive effect)
+    let latestStoreTheme = 'clouds';
+    const themeUnsub = activeThemeStore.subscribe(v => { latestStoreTheme = v; });
 
 	let container: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
@@ -24,10 +38,28 @@
     let camZ = 0;
     let vortexPhase = 0;
 
+    // Precision-safe time wrapping constants
+    // iTime wraps at 10000s (~2.7 hours) - well within float32 precision
+    // All iTime multipliers in shaders (0.05, 0.02, 0.1, 0.15, 0.2, 0.25, 0.35)
+    // produce smooth values at this range. The wrap is invisible because noise
+    // functions only care about fractional parts after floor/fract operations.
+    const TIME_WRAP_PERIOD = 10000.0;
+    // Vortex phase wraps at 2*PI since it's only used in sin/cos
+    const VORTEX_WRAP = Math.PI * 2;
+    // camZ wraps at a large multiple of all path periods to avoid visible jumps
+    // Path freqs are 0.2 and 0.15, so sin periods are 2*PI/0.2=31.4 and 2*PI/0.15=41.9
+    // LCM period ≈ 209.4. We use 100x that for safety.
+    const CAMZ_WRAP = 20944.0;
+
     // Noise transition state
     let noiseTypeA = params.noiseMethod;
     let noiseTypeB = params.noiseMethod;
     let noiseMix = 0;
+
+    // Theme transition state: fade-through-black
+    let themeFade = 1.0;          // 1.0 = fully visible, 0.0 = black
+    let pendingThemeSwap: string | null = null;  // Theme ID waiting to be applied at black
+    const THEME_FADE_SPEED = 1.5; // Speed of fade (full fade in ~0.67s)
 
     // Helper for color interpolation
     const colorTargets = {
@@ -40,6 +72,9 @@
         sunCoreCol: new THREE.Color(params.sunCoreCol),
         sunGlareCol: new THREE.Color(params.sunGlareCol),
         lightningColor: new THREE.Color(params.lightningColor),
+        nebulaColor1: new THREE.Color(params.nebulaColor1),
+        nebulaColor2: new THREE.Color(params.nebulaColor2),
+        nebulaColor3: new THREE.Color(params.nebulaColor3),
     };
 
 	onMount(() => {
@@ -76,13 +111,18 @@
         blueNoiseTex.generateMipmaps = true; 
         blueNoiseTex.colorSpace = THREE.NoColorSpace; 
 
+        // Use the correct shader for the initial theme (from store/localStorage)
+        const initialTheme = themeShaders[latestStoreTheme] || themeShaders['clouds'];
+        currentThemeId = latestStoreTheme;
+
 		material = new THREE.ShaderMaterial({
-			vertexShader,
-			fragmentShader,
+			vertexShader: initialTheme.vertex,
+			fragmentShader: initialTheme.fragment,
 			uniforms: {
 				iTime: { value: 0 },
                 uCamZ: { value: 0 },
                 uVortexPhase: { value: 0 },
+                uNoisePhase: { value: 0 },
 				iResolution: { value: new THREE.Vector3(1, 1, 1) },
                 iChannel0: { value: noiseTex },
                 iChannel1: { value: blueNoiseTex },
@@ -128,6 +168,21 @@
                 LIGHTNING_INTENSITY: { value: params.lightningIntensity },
                 LIGHTNING_AUDIO_SYNC: { value: params.lightningAudioSync || 0 },
                 AUDIO_BEAT: { value: 0 },
+                AUDIO_BASS: { value: 0 },
+                AUDIO_MID: { value: 0 },
+                AUDIO_HIGH: { value: 0 },
+                uFadeAlpha: { value: 1.0 },
+                // Cosmos uniforms
+                NEBULA_DENSITY: { value: params.nebulaDensity },
+                NEBULA_FALLOFF: { value: params.nebulaFalloff },
+                NEBULA_COLOR_1: { value: new THREE.Color(params.nebulaColor1) },
+                NEBULA_COLOR_2: { value: new THREE.Color(params.nebulaColor2) },
+                NEBULA_COLOR_3: { value: new THREE.Color(params.nebulaColor3) },
+                STAR_DENSITY: { value: params.starDensity },
+                STAR_BRIGHTNESS: { value: params.starBrightness },
+                STAR_GLOW_SIZE: { value: params.starGlowSize },
+                SPIRAL_ARMS: { value: params.spiralArms },
+                SPIRAL_TWIST: { value: params.spiralTwist },
 			}
 		});
 
@@ -175,7 +230,51 @@
             
             if (material) {
                 const dt = clock.getDelta();
-                material.uniforms.iTime.value = clock.elapsedTime; 
+
+                // --- THEME SWITCHING — fade-through-black ---
+                // 1. Request detected → start fading out
+                if (latestStoreTheme !== currentThemeId && pendingThemeSwap === null) {
+                    pendingThemeSwap = latestStoreTheme;
+                }
+                // 2. Fading logic
+                if (pendingThemeSwap !== null) {
+                    themeFade = Math.max(0.0, themeFade - dt * THEME_FADE_SPEED);
+                    if (themeFade <= 0.0) {
+                        // At full black — swap shader and snap uniforms
+                        const newTheme = themeShaders[pendingThemeSwap];
+                        if (newTheme) {
+                            material.vertexShader = newTheme.vertex;
+                            material.fragmentShader = newTheme.fragment;
+                            material.needsUpdate = true;
+                            currentThemeId = pendingThemeSwap;
+                            material.uniforms.CLOUD_DENSITY.value = params.cloudDensity;
+                            material.uniforms.TUNNEL_RADIUS.value = params.tunnelRadius;
+                            material.uniforms.NOISE_SCALE_BASE.value = params.noiseScaleBase;
+                            material.uniforms.NOISE_SCALE_DET.value = params.noiseScaleDet;
+                            material.uniforms.FOG_DENSITY.value = params.fogDensity;
+                            material.uniforms.DRAW_DIST.value = params.drawDist;
+                            material.uniforms.NEBULA_DENSITY.value = params.nebulaDensity;
+                            material.uniforms.NEBULA_FALLOFF.value = params.nebulaFalloff;
+                            material.uniforms.STAR_BRIGHTNESS.value = params.starBrightness;
+                            material.uniforms.STAR_DENSITY.value = params.starDensity;
+                            material.uniforms.STAR_GLOW_SIZE.value = params.starGlowSize;
+                            material.uniforms.VORTEX_SPEED.value = params.vortexSpeed;
+                            material.uniforms.VORTEX_TWIST.value = params.vortexTwist;
+                            // Snap colours
+                            material.uniforms.NEBULA_COLOR_1.value.copy(colorTargets.nebulaColor1);
+                            material.uniforms.NEBULA_COLOR_2.value.copy(colorTargets.nebulaColor2);
+                            material.uniforms.NEBULA_COLOR_3.value.copy(colorTargets.nebulaColor3);
+                        }
+                        pendingThemeSwap = null;
+                        // themeFade stays at 0 → will ramp back up below
+                    }
+                } else {
+                    // Fade back in
+                    themeFade = Math.min(1.0, themeFade + dt * THEME_FADE_SPEED);
+                }
+
+                // Wrap iTime to prevent float32 precision degradation over long sessions
+                material.uniforms.iTime.value = clock.elapsedTime % TIME_WRAP_PERIOD;
 
                 // Interpolation factor for smooth transitions
                 // Value logic: 1.0 - exp(-dt * speed)
@@ -256,6 +355,13 @@
                 camZ += dt * material.uniforms.CAM_SPEED.value;
                 vortexPhase += dt * material.uniforms.VORTEX_SPEED.value;
 
+                // Wrap accumulated values to prevent float32 precision loss
+                // camZ wraps at a path-period multiple so sin(camZ * freq) is continuous
+                if (camZ > CAMZ_WRAP) camZ -= CAMZ_WRAP;
+                if (camZ < -CAMZ_WRAP) camZ += CAMZ_WRAP;
+                // Vortex phase only used in sin/cos, so wrap at 2*PI
+                vortexPhase = ((vortexPhase % VORTEX_WRAP) + VORTEX_WRAP) % VORTEX_WRAP;
+
                 // --- NOISE TRANSITION LOGIC ---
                 const targetNoiseType = params.noiseMethod;
                 
@@ -295,14 +401,33 @@
 
                 material.uniforms.uCamZ.value = camZ;
                 material.uniforms.uVortexPhase.value = vortexPhase;
+                // Pre-compute noise phase on CPU where we have float64 precision
+                // This avoids the shader doing (uCamZ - iTime*0.5) with two large floats
+                const wrappedTime = material.uniforms.iTime.value;
+                material.uniforms.uNoisePhase.value = (camZ - wrappedTime * 0.5) % TIME_WRAP_PERIOD;
                 
                 // Update Audio Uniforms
                 // Fallback to random mode if audio sync is requested but music is not playing
                 const shouldUseAudio = params.lightningAudioSync && $audioState.isPlaying;
                 material.uniforms.LIGHTNING_AUDIO_SYNC.value = shouldUseAudio ? 1 : 0;
                 
-                // We access the store value directly for max speed
+                // Pass all audio data for theme-specific reactivity
                 material.uniforms.AUDIO_BEAT.value = $audioState.beat;
+                material.uniforms.AUDIO_BASS.value = $audioState.bass || 0;
+                material.uniforms.AUDIO_MID.value = $audioState.mid || 0;
+                material.uniforms.AUDIO_HIGH.value = $audioState.high || 0;
+
+                // Cosmos uniforms (smooth lerp)
+                material.uniforms.NEBULA_DENSITY.value += (params.nebulaDensity - material.uniforms.NEBULA_DENSITY.value) * lerpFactor;
+                material.uniforms.NEBULA_FALLOFF.value += (params.nebulaFalloff - material.uniforms.NEBULA_FALLOFF.value) * lerpFactor;
+                material.uniforms.STAR_DENSITY.value += (params.starDensity - material.uniforms.STAR_DENSITY.value) * lerpFactor;
+                material.uniforms.STAR_BRIGHTNESS.value += (params.starBrightness - material.uniforms.STAR_BRIGHTNESS.value) * lerpFactor;
+                material.uniforms.STAR_GLOW_SIZE.value += (params.starGlowSize - material.uniforms.STAR_GLOW_SIZE.value) * lerpFactor;
+                material.uniforms.NEBULA_COLOR_1.value.lerp(colorTargets.nebulaColor1, lerpFactor);
+                material.uniforms.NEBULA_COLOR_2.value.lerp(colorTargets.nebulaColor2, lerpFactor);
+                material.uniforms.NEBULA_COLOR_3.value.lerp(colorTargets.nebulaColor3, lerpFactor);
+
+                material.uniforms.uFadeAlpha.value = themeFade;
             }
 
 			renderer.render(scene, camera);
@@ -321,10 +446,50 @@
         colorTargets.sunCoreCol.set(params.sunCoreCol);
         colorTargets.sunGlareCol.set(params.sunGlareCol);
         colorTargets.lightningColor.set(params.lightningColor);
-        
+        colorTargets.nebulaColor1.set(params.nebulaColor1);
+        colorTargets.nebulaColor2.set(params.nebulaColor2);
+        colorTargets.nebulaColor3.set(params.nebulaColor3);
+
         // Ensure clear color is synced with background color target to minimize flash artifact
         if (renderer) {
             renderer.setClearColor(colorTargets.bgColor);
+        }
+
+        // Theme switching handled in animate loop (polled from store)
+        if (false) {
+            const newTheme = themeShaders[activeTheme];
+            if (newTheme) {
+                material.vertexShader = newTheme.vertex;
+                material.fragmentShader = newTheme.fragment;
+                material.needsUpdate = true;
+                currentThemeId = activeTheme;
+
+                // Snap ALL structural uniforms instantly
+                material.uniforms.CLOUD_DENSITY.value = params.cloudDensity;
+                material.uniforms.TUNNEL_RADIUS.value = params.tunnelRadius;
+                material.uniforms.NOISE_SCALE_BASE.value = params.noiseScaleBase;
+                material.uniforms.NOISE_SCALE_DET.value = params.noiseScaleDet;
+                material.uniforms.FOG_DENSITY.value = params.fogDensity;
+                material.uniforms.DRAW_DIST.value = params.drawDist;
+                material.uniforms.NEBULA_DENSITY.value = params.nebulaDensity;
+                material.uniforms.NEBULA_FALLOFF.value = params.nebulaFalloff;
+                material.uniforms.STAR_BRIGHTNESS.value = params.starBrightness;
+                material.uniforms.STAR_DENSITY.value = params.starDensity;
+                material.uniforms.VORTEX_SPEED.value = params.vortexSpeed;
+                material.uniforms.VORTEX_TWIST.value = params.vortexTwist;
+                // Snap colors
+                material.uniforms.BG_COLOR.value.copy(colorTargets.bgColor);
+                material.uniforms.LIGHT_COLOR_1.value.copy(colorTargets.lightColor1);
+                material.uniforms.LIGHT_COLOR_2.value.copy(colorTargets.lightColor2);
+                material.uniforms.CLOUD_BASE_COL.value.copy(colorTargets.cloudBaseCol);
+                material.uniforms.CLOUD_SHADOW_COL.value.copy(colorTargets.cloudShadowCol);
+                material.uniforms.SUN_GLOW_COL.value.copy(colorTargets.sunGlowCol);
+                material.uniforms.SUN_CORE_COL.value.copy(colorTargets.sunCoreCol);
+                material.uniforms.SUN_GLARE_COL.value.copy(colorTargets.sunGlareCol);
+                material.uniforms.NEBULA_COLOR_1.value.copy(colorTargets.nebulaColor1);
+                material.uniforms.NEBULA_COLOR_2.value.copy(colorTargets.nebulaColor2);
+                material.uniforms.NEBULA_COLOR_3.value.copy(colorTargets.nebulaColor3);
+            }
         }
 
         if (material) {
@@ -368,6 +533,7 @@
         if (blueNoiseTex) blueNoiseTex.dispose();
 		if (renderer) renderer.dispose();
         if (material) material.dispose();
+        themeUnsub(); // Clean up store subscription
 	});
 </script>
 

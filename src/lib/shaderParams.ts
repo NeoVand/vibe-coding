@@ -42,6 +42,18 @@ export type ShaderParams = {
     lightningAudioSync: number; // 0 or 1
     lightningThreshold: number; // 1.0 - 3.0 typically for ratio
     
+    // Cosmos theme
+    nebulaDensity: number;
+    nebulaFalloff: number;
+    nebulaColor1: string;
+    nebulaColor2: string;
+    nebulaColor3: string;
+    starDensity: number;
+    starBrightness: number;
+    starGlowSize: number;
+    spiralArms: number;
+    spiralTwist: number;
+
     // Performance Tuning
     pixelRatioCap: number;    // Hard cap on devicePixelRatio (e.g. 1.0, 1.5, 2.0)
     renderScale: number;      // Internal resolution scaler (0.1 - 1.0)
@@ -110,6 +122,18 @@ export const defaultParams: ShaderParams = {
     lightningIntensity: 1.0,  // Strength of the lightning
     lightningAudioSync: 0,
     lightningThreshold: 1.5, // Beat detection ratio threshold
+
+    // Water theme defaults (uniforms reuse cosmos/nebula/star slot names)
+    nebulaDensity: 4.0,          // vortex opening size / raymarch threshold
+    nebulaFalloff: 0.75,         // fresnel max reflectivity
+    nebulaColor1: '#334D66',     // shallow water  ≈ vec3(0.20, 0.30, 0.40)
+    nebulaColor2: '#1A5D70',     // deep water     ≈ vec3(0.10, 0.365, 0.44)
+    nebulaColor3: '#D9D9D9',     // mist / fog     ≈ vec3(0.85, 0.85, 0.85)
+    starDensity: 25.0,           // fog start distance
+    starBrightness: 15.0,        // fog depth range
+    starGlowSize: 1.0,           // camera drift amplitude
+    spiralArms: 2.0,
+    spiralTwist: 0.1,
 
     // Performance Defaults
     pixelRatioCap: 1.5,       // Good balance for Retina screens
