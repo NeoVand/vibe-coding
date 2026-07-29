@@ -4,7 +4,7 @@
     import type { ShaderParams } from '$lib/shaderParams';
     import { audioState } from '$lib/stores/audio';
     import { activeThemeStore } from '$lib/stores/theme';
-    import { vertexShader, fragmentShader } from '$lib/shaders/cloud-tunnel';
+    import { vertexShader, fragmentShader } from '$lib/shaders/themes/clouds/index';
     import { vertexShader as cosmosVertex, fragmentShader as cosmosFragment } from '$lib/shaders/themes/cosmos/index';
 
 	let { params, activeTheme = 'clouds' }: { params: ShaderParams; activeTheme?: string } = $props();
@@ -37,6 +37,7 @@
     // Integration state variables
     let camZ = 0;
     let vortexPhase = 0;
+    let wavePhase = 0;
 
     // Precision-safe time wrapping constants
     // iTime wraps at 10000s (~2.7 hours) - well within float32 precision
@@ -183,6 +184,12 @@
                 STAR_GLOW_SIZE: { value: params.starGlowSize },
                 SPIRAL_ARMS: { value: params.spiralArms },
                 SPIRAL_TWIST: { value: params.spiralTwist },
+                // Water geometry
+                WAVE_AMP: { value: params.waveAmp },
+                WAVE_SPEED: { value: params.waveSpeed },
+                SHAPE_ARMS: { value: params.shapeArms },
+                SHAPE_AMP: { value: params.shapeAmp },
+                uWavePhase: { value: 0 },
 			}
 		});
 
@@ -260,6 +267,10 @@
                             material.uniforms.STAR_GLOW_SIZE.value = params.starGlowSize;
                             material.uniforms.VORTEX_SPEED.value = params.vortexSpeed;
                             material.uniforms.VORTEX_TWIST.value = params.vortexTwist;
+                            material.uniforms.WAVE_AMP.value = params.waveAmp;
+                            material.uniforms.WAVE_SPEED.value = params.waveSpeed;
+                            material.uniforms.SHAPE_ARMS.value = Math.round(params.shapeArms);
+                            material.uniforms.SHAPE_AMP.value = params.shapeAmp;
                             // Snap colours
                             material.uniforms.NEBULA_COLOR_1.value.copy(colorTargets.nebulaColor1);
                             material.uniforms.NEBULA_COLOR_2.value.copy(colorTargets.nebulaColor2);
@@ -354,13 +365,15 @@
                 // This prevents jumps when parameters change
                 camZ += dt * material.uniforms.CAM_SPEED.value;
                 vortexPhase += dt * material.uniforms.VORTEX_SPEED.value;
+                wavePhase += dt * material.uniforms.WAVE_SPEED.value;
 
                 // Wrap accumulated values to prevent float32 precision loss
                 // camZ wraps at a path-period multiple so sin(camZ * freq) is continuous
                 if (camZ > CAMZ_WRAP) camZ -= CAMZ_WRAP;
                 if (camZ < -CAMZ_WRAP) camZ += CAMZ_WRAP;
-                // Vortex phase only used in sin/cos, so wrap at 2*PI
+                // Vortex/wave phases only used in sin/cos, so wrap at 2*PI
                 vortexPhase = ((vortexPhase % VORTEX_WRAP) + VORTEX_WRAP) % VORTEX_WRAP;
+                wavePhase = ((wavePhase % VORTEX_WRAP) + VORTEX_WRAP) % VORTEX_WRAP;
 
                 // --- NOISE TRANSITION LOGIC ---
                 const targetNoiseType = params.noiseMethod;
@@ -423,6 +436,13 @@
                 material.uniforms.STAR_DENSITY.value += (params.starDensity - material.uniforms.STAR_DENSITY.value) * lerpFactor;
                 material.uniforms.STAR_BRIGHTNESS.value += (params.starBrightness - material.uniforms.STAR_BRIGHTNESS.value) * lerpFactor;
                 material.uniforms.STAR_GLOW_SIZE.value += (params.starGlowSize - material.uniforms.STAR_GLOW_SIZE.value) * lerpFactor;
+                // Water geometry — SHAPE_ARMS snaps (non-integer lobe counts
+                // create a seam at the atan branch cut), the rest lerp smoothly
+                material.uniforms.WAVE_AMP.value += (params.waveAmp - material.uniforms.WAVE_AMP.value) * lerpFactor;
+                material.uniforms.WAVE_SPEED.value += (params.waveSpeed - material.uniforms.WAVE_SPEED.value) * lerpFactor;
+                material.uniforms.SHAPE_AMP.value += (params.shapeAmp - material.uniforms.SHAPE_AMP.value) * lerpFactor;
+                material.uniforms.SHAPE_ARMS.value = Math.round(params.shapeArms);
+                material.uniforms.uWavePhase.value = wavePhase;
                 material.uniforms.NEBULA_COLOR_1.value.lerp(colorTargets.nebulaColor1, lerpFactor);
                 material.uniforms.NEBULA_COLOR_2.value.lerp(colorTargets.nebulaColor2, lerpFactor);
                 material.uniforms.NEBULA_COLOR_3.value.lerp(colorTargets.nebulaColor3, lerpFactor);

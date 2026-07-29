@@ -725,6 +725,16 @@
             ]
         },
         {
+            title: "Waves",
+            icon: Waves,
+            items: [
+                { key: 'waveAmp', label: 'Swell Height', min: 0.0, max: 4.0, step: 0.05, type: 'slider' },
+                { key: 'waveSpeed', label: 'Swell Speed', min: 0.0, max: 3.0, step: 0.05, type: 'slider' },
+                { key: 'shapeArms', label: 'Shape Lobes', min: 0, max: 8, step: 1, type: 'slider' },
+                { key: 'shapeAmp', label: 'Lobe Depth', min: 0.0, max: 1.5, step: 0.05, type: 'slider' },
+            ]
+        },
+        {
             title: "Fog",
             icon: CloudFog,
             items: [

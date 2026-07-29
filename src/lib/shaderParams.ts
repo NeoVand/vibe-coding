@@ -54,6 +54,12 @@ export type ShaderParams = {
     spiralArms: number;
     spiralTwist: number;
 
+    // Water geometry (cosmos theme)
+    waveAmp: number;      // swell height — amplitude of the tunnel warp
+    waveSpeed: number;    // swell animation speed (phase integrated on CPU)
+    shapeArms: number;    // funnel cross-section lobes (0 = round; integer)
+    shapeAmp: number;     // lobe depth
+
     // Performance Tuning
     pixelRatioCap: number;    // Hard cap on devicePixelRatio (e.g. 1.0, 1.5, 2.0)
     renderScale: number;      // Internal resolution scaler (0.1 - 1.0)
@@ -134,6 +140,12 @@ export const defaultParams: ShaderParams = {
     starGlowSize: 1.0,           // camera drift amplitude
     spiralArms: 2.0,
     spiralTwist: 0.1,
+
+    // Water geometry defaults (match the original hard-coded look)
+    waveAmp: 1.5,
+    waveSpeed: 1.0,
+    shapeArms: 0,
+    shapeAmp: 0,
 
     // Performance Defaults
     pixelRatioCap: 1.5,       // Good balance for Retina screens

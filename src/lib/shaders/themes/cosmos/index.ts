@@ -12,6 +12,12 @@ const waterUniforms = `
     uniform float STAR_DENSITY;     // fog start distance   (default 25.0)
     uniform float STAR_BRIGHTNESS;  // fog depth range      (default 15.0)
     uniform float STAR_GLOW_SIZE;   // camera drift amp     (default 1.0)
+
+    // Water geometry
+    uniform float WAVE_AMP;         // swell height         (default 1.5)
+    uniform float SHAPE_ARMS;       // cross-section lobes  (0 = round)
+    uniform float SHAPE_AMP;        // lobe depth           (default 0.0)
+    uniform float uWavePhase;       // CPU-integrated swell phase (waveSpeed)
 `;
 
 // Water tunnel shader — parameterised port of the Shadertoy reference
@@ -49,20 +55,28 @@ const waterGLSL = `
 
     // NOISE_SCALE_BASE — water noise texture scale  (finer = smaller ripples)
     // NOISE_SCALE_DET  — wave shape frequency       (Controls: "Wave Freq")
+    // WAVE_AMP         — swell height               (Controls: "Swell Height")
     // VORTEX_TWIST     — FBM texture amplitude      (Controls: "Bump Depth")
     //                    0 = glassy smooth, 1 = natural water, 2 = very rough
+    // SHAPE_ARMS/AMP   — lobed cross-section        (Controls: "Shape Lobes/Depth")
     // rot — vortex rotation from uVortexPhase, built once per pixel in main()
     //       (CPU-integrated phase; avoids jump when speed slider changes)
     float wWater(in vec3 p, in mat2 rot, in int oct) {
-        // Tunnel geometry — NOISE_SCALE_DET controls ripple frequency.
-        // Amplitude is fixed at 1.5 so the vortex opening stays stable regardless
-        // of what VORTEX_TWIST (Bump Depth) is set to.
+        // Tunnel geometry — NOISE_SCALE_DET controls swell frequency, WAVE_AMP
+        // its height. uWavePhase animates the swell (CPU-integrated so the
+        // speed slider never causes a phase jump).
         vec3 tun = vec3(
-            p.x + sin(length(p * NOISE_SCALE_DET) + iTime) * 1.5,
-            p.y + sin(length(p * NOISE_SCALE_DET))          * 1.5,
+            p.x + sin(length(p * NOISE_SCALE_DET) + uWavePhase) * WAVE_AMP,
+            p.y + sin(length(p * NOISE_SCALE_DET))              * WAVE_AMP,
             0.0
         );
-        float coef = length(tun) - NEBULA_DENSITY;
+        float r = length(tun);
+        // Lobed cross-section: petals co-rotate with the vortex texture.
+        // SHAPE_ARMS must be an integer or the atan branch cut shows a seam.
+        if (SHAPE_AMP > 0.001) {
+            r += sin((atan(tun.y, tun.x) - uVortexPhase) * SHAPE_ARMS) * SHAPE_AMP;
+        }
+        float coef = r - NEBULA_DENSITY;
 
         p.xy *= rot;
         // VORTEX_TWIST scales the FBM contribution → directly controls how much
