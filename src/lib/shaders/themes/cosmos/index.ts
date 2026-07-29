@@ -1,4 +1,4 @@
-import { baseUniforms } from '../../core';
+import { baseUniforms, utils } from '../../core';
 export { vertexShader } from '../../core/vertex';
 
 // Extra uniforms for the water shader — reuses cosmos/nebula/star slots
@@ -14,44 +14,46 @@ const waterUniforms = `
     uniform float STAR_GLOW_SIZE;   // camera drift amp     (default 1.0)
 `;
 
-// Water tunnel shader — faithful, parameterised port of the Shadertoy reference
-// Noise: Morgan McGuire (shadertoy.com/view/4dS3Wd)
-// Sky:   TDM          (shadertoy.com/view/Ms2SD1)
+// Water tunnel shader — parameterised port of the Shadertoy reference
+// Sky: TDM (shadertoy.com/view/Ms2SD1)
+// Noise comes from the shared texNoise (core/utils) — one texture fetch per
+// octave instead of the reference's 8-corner sin() hash, which cost ~64
+// transcendentals per wWater() call and made the raymarch GPU-bound.
 const waterGLSL = `
-    float wRand(float x) {
-        return fract(sin(x) * 1e4);
-    }
-
-    float wNoise(vec3 p) {
-        const vec3 st = vec3(110.0, 241.0, 171.0);
-        vec3 i = floor(p);
-        vec3 f = fract(p);
-        float n = dot(i, st);
-        vec3 u = f * f * (3.0 - 2.0 * f);
-        return mix(
-            mix(
-                mix(wRand(n + dot(st, vec3(0,0,0))), wRand(n + dot(st, vec3(1,0,0))), u.x),
-                mix(wRand(n + dot(st, vec3(0,1,0))), wRand(n + dot(st, vec3(1,1,0))), u.x),
-                u.y),
-            mix(
-                mix(wRand(n + dot(st, vec3(0,0,1))), wRand(n + dot(st, vec3(1,0,1))), u.x),
-                mix(wRand(n + dot(st, vec3(0,1,1))), wRand(n + dot(st, vec3(1,1,1))), u.x),
-                u.y),
-            u.z);
-    }
-
     mat2 wRot(float a) {
         float ca = cos(a);
         float sa = sin(a);
         return mat2(ca, sa, -sa, ca);
     }
 
+    // Amplitude-weighted FBM (2, 1, 0.5, ...). Same lattice frequencies and
+    // [0,1] value range as the old ALU noise, so scale/contrast are preserved.
+    // oct is the LOD: the march uses 4 octaves (>94% of total amplitude — the
+    // rest shifts the isosurface imperceptibly), surface normals use all 6.
+    // Octaves 7-8 of the original sat below both pixel size and the normal
+    // eps at water noise scales, contributing only aliasing shimmer.
+    float wFbm(in vec3 p, in int oct) {
+        float n1 = 0.0;
+        float c = 1.0;
+        float amp = 2.0;
+        float d = 1.0;
+        for (int i = 0; i < 6; ++i) {
+            if (i >= oct) break;
+            n1 += amp * texNoise((p * c - 0.5 * c * d) * NOISE_SCALE_BASE);
+            c   *= 2.0;
+            amp *= 0.5;
+            d   += 1.5;
+        }
+        return n1;
+    }
+
     // NOISE_SCALE_BASE — water noise texture scale  (finer = smaller ripples)
     // NOISE_SCALE_DET  — wave shape frequency       (Controls: "Wave Freq")
     // VORTEX_TWIST     — FBM texture amplitude      (Controls: "Bump Depth")
     //                    0 = glassy smooth, 1 = natural water, 2 = very rough
-    // uVortexPhase     — CPU-integrated rotation; avoids jump when speed slider changes
-    float wWater(in vec3 p) {
+    // rot — vortex rotation from uVortexPhase, built once per pixel in main()
+    //       (CPU-integrated phase; avoids jump when speed slider changes)
+    float wWater(in vec3 p, in mat2 rot, in int oct) {
         // Tunnel geometry — NOISE_SCALE_DET controls ripple frequency.
         // Amplitude is fixed at 1.5 so the vortex opening stays stable regardless
         // of what VORTEX_TWIST (Bump Depth) is set to.
@@ -62,22 +64,11 @@ const waterGLSL = `
         );
         float coef = length(tun) - NEBULA_DENSITY;
 
-        float c = 1.0;
-        float n1 = 0.0;   // starts at 0 so VORTEX_TWIST fully governs amplitude
-        float d = 1.0;
-        // uVortexPhase is smoothly integrated on CPU — no discontinuous jump
-        // when VORTEX_SPEED slider changes (unlike iTime * VORTEX_SPEED)
-        p.xy *= wRot(uVortexPhase);
-        for (int i = 0; i < 8; ++i) {
-            vec3 ni = vec3(p * c - 0.5 * c * d);
-            n1 += 2.0 / c * abs(wNoise(ni * NOISE_SCALE_BASE));
-            c  *= 2.0;
-            d  += 1.5;
-        }
+        p.xy *= rot;
         // VORTEX_TWIST scales the FBM contribution → directly controls how much
         // the noise field textures the surface (visible bumps in the normals).
         // Geometry (coef) is unaffected, so the vortex opening never breaks.
-        return (1.0 + n1 * VORTEX_TWIST) * coef;
+        return (1.0 + wFbm(p, oct) * VORTEX_TWIST) * coef;
     }
 
     // Uses PATH_FREQ_X/Y so the tunnel path matches the cloud tunnel path,
@@ -94,7 +85,7 @@ const waterGLSL = `
     vec3 wSky(vec3 e) {
         e.y = max(e.y, 0.0);
         float fade = 1.0 - e.y;
-        return SUN_GLOW_COL * (fade * fade * 0.9 + 0.1) * wNoise(e);
+        return SUN_GLOW_COL * (fade * fade * 0.9 + 0.1) * texNoise(e);
     }
 
     void main() {
@@ -120,44 +111,55 @@ const waterGLSL = `
         // CAM_FOV controls perspective. 1.26/FOV ≈ 0.7 at the default FOV of 1.8.
         vec3 rd = normalize(uv.x * cx + uv.y * cy + cz * (1.26 / CAM_FOV));
 
-        // Raymarch — accumulate density until NEBULA_DENSITY threshold
+        // Raymarch — accumulate density until NEBULA_DENSITY threshold.
+        // Coarse 4-octave LOD: only the converged position matters here, and
+        // the dropped octaves carry <6% of the field's amplitude.
+        mat2 vortRot = wRot(uVortexPhase);
         vec3 p = s;
         float acc = 0.0;
         float thresh = NEBULA_DENSITY;
         for (int i = 0; i < 200; ++i) {
             if (i >= RENDER_STEPS) break;
-            float mH = wWater(p);
+            float mH = wWater(p, vortRot, 4);
             acc += mH;
             if (acc > thresh) break;
             p += rd * (mH - thresh) * 0.09;
         }
 
-        // Normal via backward finite differences
-        vec2 eps = vec2(0.05, 0.0);
-        vec3 zV  = vec3(0.0, 0.0, 1.0);
-        vec3 n   = normalize(wWater(p) - vec3(
-            wWater(p - eps.xyy),
-            wWater(p - eps.yxy),
-            wWater(p - eps.yyx)
-        ));
-
-        // Base colour from shallow/deep mix + fresnel reflection
-        vec3 col = mix(
-            NEBULA_COLOR_1,
-            NEBULA_COLOR_2,
-            abs(1.0 + dot(n, s) * pow(dot(zV, rd), 5.0))
-        );
-        float fresnel  = clamp(1.0 - dot(n, s), 0.05, NEBULA_FALLOFF);
-        vec3 reflected = wSky(abs(reflect(rd, n)));
-        col = mix(col, reflected, fresnel * reflected.x);
-
         // Fog — STAR_DENSITY = start, STAR_BRIGHTNESS = range
         float fog = clamp((length(p - s) - STAR_DENSITY) / max(STAR_BRIGHTNESS, 0.1), 0.0, 1.0);
-        col = mix(col, NEBULA_COLOR_3, fog);
+
+        vec3 col;
+        if (fog >= 0.999) {
+            // Fully fogged — normals and reflection can't affect the colour
+            col = NEBULA_COLOR_3;
+        } else {
+            // Normal via backward finite differences, full 6-octave detail
+            vec2 eps = vec2(0.05, 0.0);
+            vec3 zV  = vec3(0.0, 0.0, 1.0);
+            float d0 = wWater(p, vortRot, 6);
+            vec3 n   = normalize(d0 - vec3(
+                wWater(p - eps.xyy, vortRot, 6),
+                wWater(p - eps.yxy, vortRot, 6),
+                wWater(p - eps.yyx, vortRot, 6)
+            ));
+
+            // Base colour from shallow/deep mix + fresnel reflection
+            col = mix(
+                NEBULA_COLOR_1,
+                NEBULA_COLOR_2,
+                abs(1.0 + dot(n, s) * pow(dot(zV, rd), 5.0))
+            );
+            float fresnel  = clamp(1.0 - dot(n, s), 0.05, NEBULA_FALLOFF);
+            vec3 reflected = wSky(abs(reflect(rd, n)));
+            col = mix(col, reflected, fresnel * reflected.x);
+
+            col = mix(col, NEBULA_COLOR_3, fog);
+        }
 
         col *= uFadeAlpha;
         gl_FragColor = vec4(col, 1.0);
     }
 `;
 
-export const fragmentShader = [baseUniforms, waterUniforms, waterGLSL].join('\n');
+export const fragmentShader = [baseUniforms, waterUniforms, utils, waterGLSL].join('\n');
