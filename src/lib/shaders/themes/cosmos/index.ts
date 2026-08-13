@@ -64,9 +64,11 @@ const waterGLSL = `
     float wWater(in vec3 p, in mat2 rot, in int oct) {
         // Tunnel geometry — NOISE_SCALE_DET controls swell frequency, WAVE_AMP
         // its height. uWavePhase animates the swell (CPU-integrated so the
-        // speed slider never causes a phase jump).
+        // speed slider never causes a phase jump). The MINUS sign makes the
+        // rings expand toward the viewer — approaching waves read as forward
+        // motion, where "+" made them contract and feel like drifting back.
         vec3 tun = vec3(
-            p.x + sin(length(p * NOISE_SCALE_DET) + uWavePhase) * WAVE_AMP,
+            p.x + sin(length(p * NOISE_SCALE_DET) - uWavePhase) * WAVE_AMP,
             p.y + sin(length(p * NOISE_SCALE_DET))              * WAVE_AMP,
             0.0
         );
@@ -78,11 +80,17 @@ const waterGLSL = `
         }
         float coef = r - NEBULA_DENSITY;
 
-        p.xy *= rot;
+        // World-anchored ripple field: the camera conceptually flies +z at
+        // CAM_SPEED (uCamZ = integrated speed), so sample the noise at
+        // world-z = view-z + uCamZ. The texture then streams past the viewer,
+        // which is the forward-motion cue the fixed-position camera lacks.
+        // (uCamZ wraps at ~21k: at preset noise scales the worst-case float32
+        // jitter on the finest octave is ~2% of a lattice cell — invisible.)
+        vec3 q = vec3(p.xy * rot, p.z + uCamZ);
         // VORTEX_TWIST scales the FBM contribution → directly controls how much
         // the noise field textures the surface (visible bumps in the normals).
         // Geometry (coef) is unaffected, so the vortex opening never breaks.
-        return (1.0 + wFbm(p, oct) * VORTEX_TWIST) * coef;
+        return (1.0 + wFbm(q, oct) * VORTEX_TWIST) * coef;
     }
 
     // Uses PATH_FREQ_X/Y so the tunnel path matches the cloud tunnel path,

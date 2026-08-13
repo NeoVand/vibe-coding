@@ -703,7 +703,7 @@
         title: "Camera",
         icon: Video,
         items: [
-            { key: 'camSpeed', label: 'Drift Speed', min: 0, max: 10, step: 0.01, type: 'slider' },
+            { key: 'camSpeed', label: 'Speed', min: 0, max: 10, step: 0.01, type: 'slider' },
             { key: 'camFov', label: 'FOV', min: 1.0, max: 3.0, step: 0.01, type: 'slider' },
             { key: 'camRollAmp', label: 'Roll Amp', min: 0, max: 1.0, step: 0.01, type: 'slider' },
             { key: 'camRollFreq', label: 'Roll Freq', min: 0, max: 1.0, step: 0.01, type: 'slider' },
