@@ -1,7 +1,7 @@
 
 <script lang="ts">
     import { Settings, Video, CircleDot, Image, Zap, Volume2, VolumeX, Headphones, Cloud, Sun, Sunset, Sunrise, Haze, CloudLightning, Moon, Download, RotateCcw, Check, Gauge, Wind, Droplets, Waves, CloudFog, Mountain, Snowflake, Shell, Radar } from 'lucide-svelte';
-    import { PRESETS, THEME_CATEGORIES, type Preset } from '$lib/presets';
+    import { PRESETS, THEME_CATEGORIES, getDefaultPreset, type Preset } from '$lib/presets';
 	import { type ShaderParams, defaultParams } from '$lib/shaderParams';
 	import { slide, fly, scale, fade } from 'svelte/transition';
     import { onMount } from 'svelte';
@@ -23,7 +23,8 @@
 
 	let isOpen = $state(false);
     let activeGroup = $state("Camera");
-    let activePresetId = $state("default");
+    // Matches the preset +page seeds params with on load.
+    let activePresetId = $state(getDefaultPreset(activeTheme).id);
     // Each theme bubble tracks its own satellite visibility independently
     let visibleThemeBubble = $state<string | null>(null);
     let presetsVisible = $state(false); // Legacy - controls panel presets row
@@ -55,13 +56,7 @@
     function switchTheme(themeId: string) {
         if (themeId === activeTheme) return;
         activeTheme = themeId;
-        // For cosmos use the last preset (Arctic — most polished),
-        // for clouds use the first preset (Dreamy — the default).
-        const themePresets = PRESETS.filter(p => p.theme === themeId);
-        const defaultPreset = themeId === 'cosmos' ? themePresets.at(-1) : themePresets[0];
-        if (defaultPreset) {
-            applyPreset(defaultPreset);
-        }
+        applyPreset(getDefaultPreset(themeId));
         presetsVisible = false;
     }
 

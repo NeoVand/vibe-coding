@@ -4,26 +4,19 @@
 	import { defaultParams } from '$lib/shaderParams';
     import { onMount } from 'svelte';
     import { activeThemeStore } from '$lib/stores/theme';
-    import { PRESETS } from '$lib/presets';
+    import { getDefaultPreset } from '$lib/presets';
     import { get } from 'svelte/store';
 
-	let params = $state({ ...defaultParams });
-    let activeTheme = $state(get(activeThemeStore));
+    // Start on the active theme's default preset, so the very first frame is
+    // one of the presets reachable from the icons (never the bare defaults).
+    const savedTheme = get(activeThemeStore);
+	let params = $state({ ...defaultParams, ...getDefaultPreset(savedTheme).params });
+    let activeTheme = $state(savedTheme);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let ShaderBackgroundModule: any = $state(null);
 
     onMount(async () => {
         ShaderBackgroundModule = await import('$lib/components/ShaderBackground.svelte');
-
-        // If loading with a saved theme, apply its first preset
-        const savedTheme = get(activeThemeStore);
-        if (savedTheme !== 'clouds') {
-            activeTheme = savedTheme;
-            const firstPreset = PRESETS.find(p => p.theme === savedTheme);
-            if (firstPreset) {
-                Object.assign(params, firstPreset.params);
-            }
-        }
     });
 </script>
 

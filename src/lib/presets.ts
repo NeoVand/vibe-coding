@@ -299,3 +299,11 @@ export const PRESETS: Preset[] = [
         }
     }
 ];
+
+// The preset a theme starts on — used on first load and when switching themes.
+// Clouds opens on the first preset (Dreamy), water on the last (Arctic).
+export function getDefaultPreset(theme: string): Preset {
+    const themePresets = PRESETS.filter(p => p.theme === theme);
+    const preset = theme === 'cosmos' ? themePresets.at(-1) : themePresets[0];
+    return preset ?? PRESETS[0];
+}
